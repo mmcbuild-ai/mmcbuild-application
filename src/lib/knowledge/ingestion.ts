@@ -8,18 +8,32 @@ const SYSTEM_ORG_ID = "00000000-0000-0000-0000-000000000000";
 export async function ingestKbDocument(
   kbId: string,
   documentId: string,
-  pdfBuffer: Buffer,
+  pdfBuffer: Buffer | null,
   scope: "system" | "org",
-  orgId: string | null
+  orgId: string | null,
+  rawText?: string
 ): Promise<{ pageCount: number; chunkCount: number }> {
   const admin = createAdminClient();
   const effectiveOrgId = scope === "system" ? SYSTEM_ORG_ID : orgId!;
 
-  // 1. Parse PDF
-  const parsed = await parsePdf(pdfBuffer);
+  let text: string;
+  let pageCount: number;
+
+  if (rawText) {
+    // Raw text input (manual entries, non-PDF files)
+    text = rawText;
+    pageCount = 1;
+  } else if (pdfBuffer) {
+    // PDF parsing
+    const parsed = await parsePdf(pdfBuffer);
+    text = parsed.text;
+    pageCount = parsed.pageCount;
+  } else {
+    throw new Error("Either pdfBuffer or rawText must be provided");
+  }
 
   // 2. Chunk the text
-  const chunks = chunkText(parsed.text, {
+  const chunks = chunkText(text, {
     sourceType: "kb_document",
     sourceId: documentId,
   });
@@ -28,13 +42,13 @@ export async function ingestKbDocument(
     await admin
       .from("knowledge_documents")
       .update({
-        page_count: parsed.pageCount,
+        page_count: pageCount,
         chunk_count: 0,
         status: "ready",
       } as never)
       .eq("id", documentId);
 
-    return { pageCount: parsed.pageCount, chunkCount: 0 };
+    return { pageCount, chunkCount: 0 };
   }
 
   // 3. Generate embeddings for all chunks
@@ -74,15 +88,15 @@ export async function ingestKbDocument(
   await admin
     .from("knowledge_documents")
     .update({
-      page_count: parsed.pageCount,
+      page_count: pageCount,
       chunk_count: chunks.length,
       status: "ready",
     } as never)
     .eq("id", documentId);
 
   console.log(
-    `[KB Ingestion] Document ${documentId}: ${parsed.pageCount} pages, ${chunks.length} chunks embedded`
+    `[KB Ingestion] Document ${documentId}: ${pageCount} pages, ${chunks.length} chunks embedded`
   );
 
-  return { pageCount: parsed.pageCount, chunkCount: chunks.length };
+  return { pageCount, chunkCount: chunks.length };
 }
