@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/server";
-import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -8,7 +7,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { FolderOpen, Plus } from "lucide-react";
+import { FolderOpen } from "lucide-react";
+import { CreateProjectDialog } from "@/components/projects/create-project-dialog";
 
 export default async function ProjectsPage() {
   const supabase = await createClient();
@@ -27,10 +27,7 @@ export default async function ProjectsPage() {
             Manage your construction projects
           </p>
         </div>
-        <Button>
-          <Plus className="mr-2 h-4 w-4" />
-          New Project
-        </Button>
+        <CreateProjectDialog />
       </div>
 
       {projects && projects.length > 0 ? (
@@ -61,10 +58,7 @@ export default async function ProjectsPage() {
           <p className="mb-4 text-sm text-muted-foreground">
             Create your first project to get started with MMC Build.
           </p>
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            Create Project
-          </Button>
+          <CreateProjectDialog />
         </Card>
       )}
     </div>
