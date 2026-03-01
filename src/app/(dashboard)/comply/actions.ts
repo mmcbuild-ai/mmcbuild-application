@@ -4,7 +4,16 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { inngest } from "@/lib/inngest/client";
 
-export async function uploadPlan(formData: FormData) {
+/**
+ * Register a plan that was already uploaded to Supabase Storage from the browser.
+ * This avoids Vercel's 4.5MB serverless body size limit.
+ */
+export async function registerPlan(
+  projectId: string,
+  fileName: string,
+  filePath: string,
+  fileSizeBytes: number
+) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -14,18 +23,6 @@ export async function uploadPlan(formData: FormData) {
     return { error: "Not authenticated" };
   }
 
-  const projectId = formData.get("projectId") as string;
-  const file = formData.get("file") as File;
-
-  if (!projectId || !file) {
-    return { error: "Missing project ID or file" };
-  }
-
-  if (file.type !== "application/pdf") {
-    return { error: "Only PDF files are accepted" };
-  }
-
-  // Get user profile for org_id
   const { data: profile } = await supabase
     .from("profiles")
     .select("id, org_id")
@@ -36,25 +33,15 @@ export async function uploadPlan(formData: FormData) {
     return { error: "Profile not found" };
   }
 
-  // Upload to storage: {org_id}/{project_id}/{filename}
-  const filePath = `${profile.org_id}/${projectId}/${Date.now()}-${file.name}`;
-  const { error: uploadError } = await supabase.storage
-    .from("plan-uploads")
-    .upload(filePath, file);
-
-  if (uploadError) {
-    return { error: `Upload failed: ${uploadError.message}` };
-  }
-
   // Create plan record
   const { data: plan, error: insertError } = await supabase
     .from("plans" as never)
     .insert({
       project_id: projectId,
       org_id: profile.org_id,
-      file_name: file.name,
+      file_name: fileName,
       file_path: filePath,
-      file_size_bytes: file.size,
+      file_size_bytes: fileSizeBytes,
       status: "uploading",
       created_by: profile.id,
     } as never)
@@ -71,7 +58,7 @@ export async function uploadPlan(formData: FormData) {
     data: {
       projectId,
       fileUrl: filePath,
-      fileName: file.name,
+      fileName,
       uploadedBy: profile.id,
     },
   });

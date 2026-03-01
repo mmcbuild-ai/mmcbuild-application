@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Upload, FileText, Loader2 } from "lucide-react";
-import { uploadPlan } from "@/app/(dashboard)/comply/actions";
+import { registerPlan } from "@/app/(dashboard)/comply/actions";
+import { createClient } from "@/lib/supabase/client";
 
 interface PlanDropzoneProps {
   projectId: string;
@@ -33,18 +34,59 @@ export function PlanDropzone({ projectId }: PlanDropzoneProps) {
     setError(null);
     setUploading(true);
 
-    const formData = new FormData();
-    formData.set("projectId", projectId);
-    formData.set("file", file);
+    try {
+      const supabase = createClient();
 
-    const result = await uploadPlan(formData);
+      // Get user profile for org_id path
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setError("Not authenticated");
+        setUploading(false);
+        return;
+      }
 
-    setUploading(false);
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("org_id")
+        .eq("user_id", user.id)
+        .single();
 
-    if (result.error) {
-      setError(result.error);
-    } else {
-      router.refresh();
+      if (!profile) {
+        setError("Profile not found");
+        setUploading(false);
+        return;
+      }
+
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const filePath = `${profile.org_id}/${projectId}/${Date.now()}_${safeName}`;
+
+      // Upload directly to Supabase Storage from browser (bypasses Vercel 4.5MB limit)
+      const { error: storageError } = await supabase.storage
+        .from("plan-uploads")
+        .upload(filePath, file, {
+          contentType: "application/pdf",
+        });
+
+      if (storageError) {
+        setError(`Upload failed: ${storageError.message}`);
+        setUploading(false);
+        return;
+      }
+
+      // Register in DB + trigger Inngest via lightweight server action
+      const result = await registerPlan(projectId, file.name, filePath, file.size);
+
+      setUploading(false);
+
+      if (result.error) {
+        setError(result.error);
+      } else {
+        router.refresh();
+      }
+    } catch (err) {
+      console.error("Upload failed:", err);
+      setError("Upload failed. Please try again.");
+      setUploading(false);
     }
   }, [projectId, router]);
 
