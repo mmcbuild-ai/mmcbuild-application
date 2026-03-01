@@ -12,6 +12,30 @@ export type ProjectStatus =
   | "completed"
   | "archived";
 
+export type PlanStatus =
+  | "uploading"
+  | "processing"
+  | "ready"
+  | "error";
+
+export type CheckStatus =
+  | "queued"
+  | "processing"
+  | "completed"
+  | "error";
+
+export type RiskLevel =
+  | "low"
+  | "medium"
+  | "high"
+  | "critical";
+
+export type FindingSeverity =
+  | "compliant"
+  | "advisory"
+  | "non_compliant"
+  | "critical";
+
 export type Json =
   | string
   | number
@@ -163,12 +187,410 @@ export interface Database {
           },
         ];
       };
+      plans: {
+        Row: {
+          id: string;
+          project_id: string;
+          org_id: string;
+          file_name: string;
+          file_path: string;
+          file_size_bytes: number;
+          page_count: number | null;
+          status: PlanStatus;
+          created_by: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          project_id: string;
+          org_id: string;
+          file_name: string;
+          file_path: string;
+          file_size_bytes?: number;
+          page_count?: number | null;
+          status?: PlanStatus;
+          created_by: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          file_name?: string;
+          file_path?: string;
+          file_size_bytes?: number;
+          page_count?: number | null;
+          status?: PlanStatus;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "plans_project_id_fkey";
+            columns: ["project_id"];
+            isOneToOne: false;
+            referencedRelation: "projects";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "plans_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organisations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "plans_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      questionnaire_responses: {
+        Row: {
+          id: string;
+          project_id: string;
+          org_id: string;
+          responses: Json;
+          completed: boolean;
+          created_by: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          project_id: string;
+          org_id: string;
+          responses?: Json;
+          completed?: boolean;
+          created_by: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          responses?: Json;
+          completed?: boolean;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "questionnaire_responses_project_id_fkey";
+            columns: ["project_id"];
+            isOneToOne: false;
+            referencedRelation: "projects";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "questionnaire_responses_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organisations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "questionnaire_responses_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      compliance_checks: {
+        Row: {
+          id: string;
+          project_id: string;
+          org_id: string;
+          plan_id: string;
+          questionnaire_id: string | null;
+          status: CheckStatus;
+          summary: string | null;
+          overall_risk: RiskLevel | null;
+          error_message: string | null;
+          started_at: string | null;
+          completed_at: string | null;
+          created_by: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          project_id: string;
+          org_id: string;
+          plan_id: string;
+          questionnaire_id?: string | null;
+          status?: CheckStatus;
+          summary?: string | null;
+          overall_risk?: RiskLevel | null;
+          error_message?: string | null;
+          started_at?: string | null;
+          completed_at?: string | null;
+          created_by: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          status?: CheckStatus;
+          summary?: string | null;
+          overall_risk?: RiskLevel | null;
+          error_message?: string | null;
+          started_at?: string | null;
+          completed_at?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "compliance_checks_project_id_fkey";
+            columns: ["project_id"];
+            isOneToOne: false;
+            referencedRelation: "projects";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "compliance_checks_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organisations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "compliance_checks_plan_id_fkey";
+            columns: ["plan_id"];
+            isOneToOne: false;
+            referencedRelation: "plans";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "compliance_checks_questionnaire_id_fkey";
+            columns: ["questionnaire_id"];
+            isOneToOne: false;
+            referencedRelation: "questionnaire_responses";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "compliance_checks_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      compliance_findings: {
+        Row: {
+          id: string;
+          check_id: string;
+          ncc_section: string;
+          category: string;
+          title: string;
+          description: string;
+          recommendation: string | null;
+          severity: FindingSeverity;
+          confidence: number;
+          ncc_citation: string | null;
+          page_references: number[] | null;
+          sort_order: number;
+        };
+        Insert: {
+          id?: string;
+          check_id: string;
+          ncc_section: string;
+          category: string;
+          title: string;
+          description: string;
+          recommendation?: string | null;
+          severity?: FindingSeverity;
+          confidence?: number;
+          ncc_citation?: string | null;
+          page_references?: number[] | null;
+          sort_order?: number;
+        };
+        Update: {
+          id?: string;
+          ncc_section?: string;
+          category?: string;
+          title?: string;
+          description?: string;
+          recommendation?: string | null;
+          severity?: FindingSeverity;
+          confidence?: number;
+          ncc_citation?: string | null;
+          page_references?: number[] | null;
+          sort_order?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "compliance_findings_check_id_fkey";
+            columns: ["check_id"];
+            isOneToOne: false;
+            referencedRelation: "compliance_checks";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      document_embeddings: {
+        Row: {
+          id: string;
+          org_id: string;
+          source_type: string;
+          source_id: string;
+          chunk_index: number;
+          content: string;
+          metadata: Json;
+          embedding: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          org_id: string;
+          source_type: string;
+          source_id: string;
+          chunk_index?: number;
+          content: string;
+          metadata?: Json;
+          embedding?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          content?: string;
+          metadata?: Json;
+          embedding?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "document_embeddings_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organisations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      feedback: {
+        Row: {
+          id: string;
+          user_id: string;
+          org_id: string;
+          feature: string;
+          rating: number;
+          comment: string | null;
+          ai_output_id: string | null;
+          metadata: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          org_id: string;
+          feature: string;
+          rating: number;
+          comment?: string | null;
+          ai_output_id?: string | null;
+          metadata?: Json;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          rating?: number;
+          comment?: string | null;
+        };
+        Relationships: [];
+      };
+      audit_log: {
+        Row: {
+          id: string;
+          org_id: string;
+          user_id: string;
+          action: string;
+          entity_type: string;
+          entity_id: string | null;
+          details: Json;
+          ip_address: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          org_id: string;
+          user_id: string;
+          action: string;
+          entity_type: string;
+          entity_id?: string | null;
+          details?: Json;
+          ip_address?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          action?: string;
+          entity_type?: string;
+          details?: Json;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      get_user_org_id: {
+        Args: Record<string, never>;
+        Returns: string;
+      };
+      get_my_profile: {
+        Args: Record<string, never>;
+        Returns: Json;
+      };
+      user_has_role: {
+        Args: { required_role: UserRole };
+        Returns: boolean;
+      };
+      match_documents: {
+        Args: {
+          query_embedding: string;
+          match_threshold?: number;
+          match_count?: number;
+          filter_metadata?: Json;
+        };
+        Returns: {
+          id: string;
+          content: string;
+          metadata: Json;
+          similarity: number;
+        }[];
+      };
+      match_documents_hybrid: {
+        Args: {
+          query_embedding: string;
+          query_text?: string;
+          match_threshold?: number;
+          match_count?: number;
+          filter_org_id?: string | null;
+          filter_source_type?: string | null;
+          filter_source_id?: string | null;
+        };
+        Returns: {
+          id: string;
+          content: string;
+          metadata: Json;
+          source_type: string;
+          source_id: string;
+          chunk_index: number;
+          similarity: number;
+        }[];
+      };
+    };
     Enums: {
       user_role: UserRole;
       project_status: ProjectStatus;
+      plan_status: PlanStatus;
+      check_status: CheckStatus;
+      risk_level: RiskLevel;
+      finding_severity: FindingSeverity;
     };
     CompositeTypes: Record<string, never>;
   };

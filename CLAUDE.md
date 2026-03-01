@@ -34,4 +34,5 @@ AI-powered compliance and construction intelligence platform for Australian resi
 6. Billing — Stripe subscriptions (Stage 7)
 
 ## Current Status
+Stage 1 complete: MMC Comply module — plan upload, questionnaire, AI compliance analysis (Claude + RAG), report with findings/severity/citations. Inngest async processing pipeline.
 Stage 0 complete: Foundation scaffold with auth, dashboard shell, Supabase schema, Inngest integration.
