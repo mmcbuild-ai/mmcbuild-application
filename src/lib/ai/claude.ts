@@ -1,51 +1,47 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { callModel } from "./models";
 import { COMPLIANCE_SYSTEM_PROMPT } from "./prompts/compliance-system";
 import { SECTION_ANALYSIS_TEMPLATE } from "./prompts/compliance-section";
 import { extractJson } from "./extract-json";
+import { runAgentAnalysis, type CrossCategoryDependency } from "./agent/compliance-agent";
 import type { ComplianceSectionResult, NccCategory } from "./types";
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!,
-});
 
 export async function analyseCompliance(
   category: NccCategory,
   planContent: string,
   projectContext: string,
-  nccContext: string
+  nccContext: string,
+  options?: { orgId?: string; checkId?: string; fewShotExamples?: string }
 ): Promise<ComplianceSectionResult> {
   const userPrompt = SECTION_ANALYSIS_TEMPLATE(
     category,
     planContent,
     projectContext,
-    nccContext
+    nccContext,
+    options?.fewShotExamples
   );
 
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 4096,
+  const result = await callModel("compliance_primary", {
     system: COMPLIANCE_SYSTEM_PROMPT,
     messages: [{ role: "user", content: userPrompt }],
+    maxTokens: 4096,
+    orgId: options?.orgId,
+    checkId: options?.checkId,
   });
 
-  const textBlock = response.content.find((block) => block.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("No text response from Claude");
-  }
-
-  const result = extractJson<ComplianceSectionResult>(textBlock.text);
+  const parsed = extractJson<ComplianceSectionResult>(result.text);
 
   console.log(
-    `[Claude] ${category}: ${result.findings.length} findings, ` +
-      `tokens: ${response.usage.input_tokens}+${response.usage.output_tokens}`
+    `[Compliance] ${category}: ${parsed.findings.length} findings, ` +
+      `tokens: ${result.usage.inputTokens}+${result.usage.outputTokens}`
   );
 
-  return result;
+  return parsed;
 }
 
 export async function generateSummary(
   findings: ComplianceSectionResult[],
-  projectContext: string
+  projectContext: string,
+  options?: { orgId?: string; checkId?: string }
 ): Promise<{ summary: string; overall_risk: "low" | "medium" | "high" | "critical" }> {
   const findingsSummary = findings
     .flatMap((s) => s.findings)
@@ -55,9 +51,7 @@ export async function generateSummary(
     )
     .join("\n");
 
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 1024,
+  const result = await callModel("summary", {
     system: COMPLIANCE_SYSTEM_PROMPT,
     messages: [
       {
@@ -78,14 +72,14 @@ Respond with JSON:
 Return ONLY valid JSON.`,
       },
     ],
+    maxTokens: 1024,
+    orgId: options?.orgId,
+    checkId: options?.checkId,
   });
 
-  const textBlock = response.content.find((block) => block.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("No text response from Claude");
-  }
-
   return extractJson<{ summary: string; overall_risk: "low" | "medium" | "high" | "critical" }>(
-    textBlock.text
+    result.text
   );
 }
+
+export { runAgentAnalysis, type CrossCategoryDependency };

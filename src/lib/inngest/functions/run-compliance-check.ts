@@ -1,9 +1,34 @@
 import { inngest } from "../client";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { analyseCompliance, generateSummary } from "@/lib/ai/claude";
+import {
+  analyseCompliance,
+  generateSummary,
+  runAgentAnalysis,
+  type CrossCategoryDependency,
+} from "@/lib/ai/claude";
 import { retrieveContext, retrievePlanChunks } from "@/lib/comply/retriever";
+import { enhancedRetrieve } from "@/lib/comply/enhanced-retriever";
 import { COMPLIANCE_USER_CONTEXT_TEMPLATE } from "@/lib/ai/prompts/compliance-system";
 import { NCC_CATEGORIES, type ComplianceSectionResult, type NccCategory } from "@/lib/ai/types";
+import {
+  crossValidate,
+  shouldCrossValidate,
+  getValidationTier,
+} from "@/lib/ai/validation/cross-validator";
+import { EXECUTION_PHASES, getCategoryPhase } from "@/lib/ai/agent/compliance-agent";
+import { getFewShotExamples } from "@/lib/ai/feedback/prompt-enricher";
+import { calibrateConfidence } from "@/lib/ai/feedback/confidence-calibrator";
+
+const ENABLE_CROSS_VALIDATION = process.env.ENABLE_CROSS_VALIDATION !== "false";
+const CROSS_VALIDATION_TIER = parseInt(process.env.CROSS_VALIDATION_TIER ?? "2", 10);
+const ENABLE_AGENTIC = process.env.ENABLE_AGENTIC_COMPLIANCE === "true";
+
+interface AnalysisStepResult {
+  result: ComplianceSectionResult;
+  nccContext: string;
+  chunkIds: string[];
+  validationTier: number;
+}
 
 export const runComplianceCheck = inngest.createFunction(
   {
@@ -52,7 +77,7 @@ export const runComplianceCheck = inngest.createFunction(
       return await retrievePlanChunks(check.org_id, check.plan_id);
     });
 
-    // 4. Build project context from questionnaire (pass raw data to expanded template)
+    // 4. Build project context from questionnaire
     const projectContext = await step.run("build-context", async () => {
       const q = questionnaireData as Record<string, string | number | boolean>;
       return COMPLIANCE_USER_CONTEXT_TEMPLATE(q);
@@ -89,17 +114,14 @@ export const runComplianceCheck = inngest.createFunction(
 
       const skip: NccCategory[] = [];
 
-      // Skip bushfire if BAL is N/A or BAL-LOW
       if (!q.bal_rating || q.bal_rating === "N/A" || q.bal_rating === "BAL-LOW") {
         skip.push("bushfire");
       }
 
-      // Skip ancillary if no pool AND no heating appliance
       if (q.has_swimming_pool !== "true" && q.has_heating_appliance !== "true") {
         skip.push("ancillary");
       }
 
-      // Skip livable_housing, health_amenity, safe_movement for Class 10 buildings
       const buildingClass = q.building_class ?? "";
       if (buildingClass.startsWith("Class 10")) {
         skip.push("livable_housing", "health_amenity", "safe_movement");
@@ -108,60 +130,81 @@ export const runComplianceCheck = inngest.createFunction(
       return categories.filter((c) => !skip.includes(c));
     });
 
-    // 6. Run analysis per category (sequential to manage rate limits)
-    const allResults: ComplianceSectionResult[] = [];
+    // 6. Analysis — agentic (phased parallel) or standard (sequential)
+    let analysisResults: AnalysisStepResult[];
 
-    for (const category of categoriesToAnalyse) {
-      const result = await step.run(
-        `analyse-${category}`,
-        async () => {
-          // Retrieve relevant NCC context via RAG (includes system KB documents)
-          const nccDocs = await retrieveContext(
-            `NCC ${category.replace(/_/g, " ")} requirements Australian residential`,
-            {
-              orgId: check.org_id,
-              sourceType: "ncc_volume",
-              matchThreshold: 0.5,
-              matchCount: 5,
-              includeSystem: true,
-            }
-          );
-
-          // Also retrieve certification embeddings for this category
-          const certDocs = await retrieveContext(
-            `${category.replace(/_/g, " ")} certification engineering`,
-            {
-              orgId: check.org_id,
-              sourceType: "certification",
-              matchThreshold: 0.6,
-              matchCount: 3,
-            }
-          );
-
-          const nccContext = [
-            ...nccDocs.map((d) => d.content),
-            ...certDocs.map((d) => `[FROM CERTIFICATION] ${d.content}`),
-          ].join("\n\n---\n\n");
-
-          return await analyseCompliance(
-            category as NccCategory,
-            planContent,
-            fullContext,
-            nccContext
-          );
-        }
+    if (ENABLE_AGENTIC) {
+      analysisResults = await runAgenticPipeline(
+        step, categoriesToAnalyse, check, planContent, fullContext
       );
-
-      allResults.push(result);
+    } else {
+      analysisResults = await runStandardPipeline(
+        step, categoriesToAnalyse, check, planContent, fullContext
+      );
     }
 
-    // 7. Store findings
+    // 7. Cross-validation for tier 1/2 categories (if enabled)
+    const validatedResults: Array<{
+      result: ComplianceSectionResult;
+      chunkIds: string[];
+      validationTier: number;
+      agreementScore: number | null;
+      secondaryModel: string | null;
+      wasReconciled: boolean;
+    }> = [];
+
+    for (let i = 0; i < categoriesToAnalyse.length; i++) {
+      const category = categoriesToAnalyse[i];
+      const analysis = analysisResults[i];
+
+      if (
+        ENABLE_CROSS_VALIDATION &&
+        shouldCrossValidate(category, CROSS_VALIDATION_TIER, analysis.result)
+      ) {
+        const validation = await step.run(
+          `validate-${category}`,
+          async () => {
+            return await crossValidate(
+              category as NccCategory,
+              analysis.result,
+              planContent,
+              fullContext,
+              analysis.nccContext,
+              { orgId: check.org_id, checkId: check.id }
+            );
+          }
+        );
+
+        validatedResults.push({
+          result: validation.reconciled,
+          chunkIds: analysis.chunkIds,
+          validationTier: analysis.validationTier,
+          agreementScore: validation.agreement_score,
+          secondaryModel: validation.secondary_model,
+          wasReconciled: validation.was_reconciled,
+        });
+      } else {
+        validatedResults.push({
+          result: analysis.result,
+          chunkIds: analysis.chunkIds,
+          validationTier: analysis.validationTier,
+          agreementScore: null,
+          secondaryModel: null,
+          wasReconciled: false,
+        });
+      }
+    }
+
+    const allResults = validatedResults.map((v) => v.result);
+
+    // 8. Store findings with validation metadata
     await step.run("store-findings", async () => {
       const admin = createAdminClient();
       let sortOrder = 0;
 
-      for (const section of allResults) {
-        for (const finding of section.findings) {
+      for (let i = 0; i < validatedResults.length; i++) {
+        const v = validatedResults[i];
+        for (const finding of v.result.findings) {
           await admin.from("compliance_findings").insert({
             check_id: check.id,
             ncc_section: finding.ncc_section,
@@ -174,17 +217,25 @@ export const runComplianceCheck = inngest.createFunction(
             ncc_citation: finding.ncc_citation,
             page_references: finding.page_references,
             sort_order: sortOrder++,
+            validation_tier: v.validationTier,
+            agreement_score: v.agreementScore,
+            secondary_model: v.secondaryModel,
+            was_reconciled: v.wasReconciled,
+            source_chunk_ids: v.chunkIds,
           } as never);
         }
       }
     });
 
-    // 8. Generate summary
+    // 9. Generate summary
     const summary = await step.run("generate-summary", async () => {
-      return await generateSummary(allResults, fullContext);
+      return await generateSummary(allResults, fullContext, {
+        orgId: check.org_id,
+        checkId: check.id,
+      });
     });
 
-    // 9. Update check as completed
+    // 10. Update check as completed
     await step.run("update-status-completed", async () => {
       const admin = createAdminClient();
       await admin
@@ -205,3 +256,234 @@ export const runComplianceCheck = inngest.createFunction(
     };
   }
 );
+
+/**
+ * Standard pipeline: sequential analysis with enhanced RAG.
+ */
+async function runStandardPipeline(
+  step: Parameters<Parameters<typeof inngest.createFunction>[2]>[0]["step"],
+  categories: NccCategory[],
+  check: { id: string; org_id: string },
+  planContent: string,
+  fullContext: string
+): Promise<AnalysisStepResult[]> {
+  const results: AnalysisStepResult[] = [];
+
+  for (const category of categories) {
+    const stepResult = await step.run(`analyse-${category}`, async () => {
+      const nccRetrieval = await enhancedRetrieve({
+        orgId: check.org_id,
+        category: category as string,
+        projectContext: fullContext,
+        sourceType: "ncc_volume",
+        matchThreshold: 0.5,
+        matchCount: 8,
+        includeSystem: true,
+        topK: 8,
+        checkId: check.id,
+      });
+
+      const certDocs = await retrieveContext(
+        `${category.replace(/_/g, " ")} certification engineering`,
+        {
+          orgId: check.org_id,
+          sourceType: "certification",
+          matchThreshold: 0.6,
+          matchCount: 3,
+        }
+      );
+
+      const nccContext = [
+        ...nccRetrieval.documents.map((d) => d.content),
+        ...certDocs.map((d) => `[FROM CERTIFICATION] ${d.content}`),
+      ].join("\n\n---\n\n");
+
+      // Enrich prompt with few-shot examples from positive feedback
+      const fewShotExamples = await getFewShotExamples(
+        category as string,
+        check.org_id
+      );
+
+      let result = await analyseCompliance(
+        category as NccCategory,
+        planContent,
+        fullContext,
+        nccContext,
+        { orgId: check.org_id, checkId: check.id, fewShotExamples }
+      );
+
+      // Calibrate confidence based on historical accuracy
+      result = await calibrateConfidence(result, check.org_id);
+
+      return {
+        result,
+        nccContext,
+        chunkIds: nccRetrieval.chunkIds,
+        validationTier: getValidationTier(category),
+      };
+    });
+
+    results.push(stepResult);
+  }
+
+  return results;
+}
+
+/**
+ * Agentic pipeline: phased parallel execution with tool-using agents.
+ * Categories in the same phase run concurrently via Promise.all.
+ * Agent has access to prior phase findings for cross-category awareness.
+ */
+async function runAgenticPipeline(
+  step: Parameters<Parameters<typeof inngest.createFunction>[2]>[0]["step"],
+  categories: NccCategory[],
+  check: { id: string; org_id: string },
+  planContent: string,
+  fullContext: string
+): Promise<AnalysisStepResult[]> {
+  const resultMap = new Map<string, AnalysisStepResult>();
+  const priorResults = new Map<string, ComplianceSectionResult>();
+  const allDependencies: CrossCategoryDependency[] = [];
+
+  // Group categories by phase
+  const phases: NccCategory[][] = [];
+  for (const phase of EXECUTION_PHASES) {
+    const activeInPhase = phase.filter((c) => categories.includes(c));
+    if (activeInPhase.length > 0) phases.push(activeInPhase);
+  }
+
+  // Execute phases sequentially, categories within each phase in parallel
+  for (let phaseIdx = 0; phaseIdx < phases.length; phaseIdx++) {
+    const phaseCategories = phases[phaseIdx];
+
+    const phaseResults = await step.run(
+      `agent-phase-${phaseIdx}`,
+      async () => {
+        const results = await Promise.all(
+          phaseCategories.map(async (category) => {
+            // Enhanced RAG retrieval
+            const nccRetrieval = await enhancedRetrieve({
+              orgId: check.org_id,
+              category: category as string,
+              projectContext: fullContext,
+              sourceType: "ncc_volume",
+              matchThreshold: 0.5,
+              matchCount: 8,
+              includeSystem: true,
+              topK: 8,
+              checkId: check.id,
+            });
+
+            const certDocs = await retrieveContext(
+              `${category.replace(/_/g, " ")} certification engineering`,
+              {
+                orgId: check.org_id,
+                sourceType: "certification",
+                matchThreshold: 0.6,
+                matchCount: 3,
+              }
+            );
+
+            const nccContext = [
+              ...nccRetrieval.documents.map((d) => d.content),
+              ...certDocs.map((d) => `[FROM CERTIFICATION] ${d.content}`),
+            ].join("\n\n---\n\n");
+
+            // Run agentic analysis with tool access
+            const agentResult = await runAgentAnalysis(
+              category as NccCategory,
+              planContent,
+              fullContext,
+              nccContext,
+              {
+                orgId: check.org_id,
+                checkId: check.id,
+                priorResults,
+                dependencies: allDependencies,
+              }
+            );
+
+            console.log(
+              `[Agent] ${category}: ${agentResult.result.findings.length} findings ` +
+                `in ${agentResult.iterations} iterations, ` +
+                `${agentResult.dependencies.length} dependencies flagged`
+            );
+
+            return {
+              category,
+              stepResult: {
+                result: agentResult.result,
+                nccContext,
+                chunkIds: nccRetrieval.chunkIds,
+                validationTier: getValidationTier(category),
+              } as AnalysisStepResult,
+              dependencies: agentResult.dependencies,
+            };
+          })
+        );
+
+        return results;
+      }
+    );
+
+    // Store phase results for next phase's cross-category access
+    for (const pr of phaseResults) {
+      resultMap.set(pr.category, pr.stepResult);
+      priorResults.set(pr.category, pr.stepResult.result);
+      allDependencies.push(...pr.dependencies);
+    }
+  }
+
+  // Dependency resolution: re-analyze categories flagged by agents
+  const categoriesToReanalyse = new Set<NccCategory>();
+  for (const dep of allDependencies) {
+    if (categories.includes(dep.target_category as NccCategory)) {
+      categoriesToReanalyse.add(dep.target_category as NccCategory);
+    }
+  }
+
+  if (categoriesToReanalyse.size > 0) {
+    console.log(
+      `[Agent] Re-analyzing ${categoriesToReanalyse.size} categories due to dependencies: ` +
+        [...categoriesToReanalyse].join(", ")
+    );
+
+    await step.run("agent-dependency-resolution", async () => {
+      const reResults = await Promise.all(
+        [...categoriesToReanalyse].map(async (category) => {
+          const existing = resultMap.get(category)!;
+
+          const agentResult = await runAgentAnalysis(
+            category,
+            planContent,
+            fullContext,
+            existing.nccContext,
+            {
+              orgId: check.org_id,
+              checkId: check.id,
+              priorResults,
+              dependencies: [],
+            }
+          );
+
+          return {
+            category,
+            stepResult: {
+              ...existing,
+              result: agentResult.result,
+            },
+          };
+        })
+      );
+
+      for (const rr of reResults) {
+        resultMap.set(rr.category, rr.stepResult);
+      }
+
+      return reResults.length;
+    });
+  }
+
+  // Return results in the original category order
+  return categories.map((c) => resultMap.get(c)!);
+}

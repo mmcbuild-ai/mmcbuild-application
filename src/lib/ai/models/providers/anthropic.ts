@@ -1,0 +1,76 @@
+/**
+ * Anthropic provider — wraps the Anthropic SDK for chat + tool_use.
+ */
+
+import Anthropic from "@anthropic-ai/sdk";
+import type { ModelDefinition } from "../registry";
+import type { ModelCallOptions, ModelCallResult, ToolUseBlock } from "../call";
+
+let client: Anthropic | null = null;
+
+function getClient(): Anthropic {
+  if (!client) {
+    client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+  }
+  return client;
+}
+
+export async function callAnthropic(
+  model: ModelDefinition,
+  options: ModelCallOptions
+): Promise<ModelCallResult> {
+  const anthropic = getClient();
+
+  const messages = (options.messages ?? [])
+    .filter((m) => m.role !== "system")
+    .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+  const systemPrompt =
+    options.system ??
+    options.messages?.find((m) => m.role === "system")?.content;
+
+  const params: Anthropic.MessageCreateParams = {
+    model: model.modelId,
+    max_tokens: options.maxTokens ?? model.maxOutput,
+    messages,
+  };
+
+  if (systemPrompt) {
+    params.system = systemPrompt;
+  }
+
+  if (options.tools && options.tools.length > 0) {
+    params.tools = options.tools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.input_schema as Anthropic.Tool.InputSchema,
+    }));
+  }
+
+  const response = await anthropic.messages.create(params);
+
+  const textBlocks = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text);
+
+  const toolCalls = response.content
+    .filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use")
+    .map(
+      (b): ToolUseBlock => ({
+        type: "tool_use",
+        id: b.id,
+        name: b.name,
+        input: b.input as Record<string, unknown>,
+      })
+    );
+
+  return {
+    text: textBlocks.join(""),
+    toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+    stopReason: response.stop_reason ?? undefined,
+    usage: {
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+    },
+  };
+}

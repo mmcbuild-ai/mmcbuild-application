@@ -17,6 +17,10 @@ interface Finding {
   ncc_citation: string | null;
   page_references: number[] | null;
   sort_order: number;
+  validation_tier?: number | null;
+  agreement_score?: number | null;
+  secondary_model?: string | null;
+  was_reconciled?: boolean | null;
 }
 
 interface ComplianceReportProps {
@@ -69,7 +73,7 @@ export function ComplianceReport({ check, findings }: ComplianceReportProps) {
             </h3>
             <div className="space-y-3">
               {catFindings.map((finding) => (
-                <FindingCard key={finding.id} finding={finding} />
+                <FindingCard key={finding.id} finding={{ ...finding, check_id: check.id }} />
               ))}
             </div>
           </div>

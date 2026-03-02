@@ -41,6 +41,15 @@ export interface RetrievedDocument {
   source_id: string;
   chunk_index: number;
   similarity: number;
+  rerank_score?: number;
+}
+
+export interface ComplianceFindingWithMeta extends ComplianceFinding {
+  source_chunk_ids?: string[];
+  validation_tier?: number;
+  agreement_score?: number;
+  secondary_model?: string;
+  was_reconciled?: boolean;
 }
 
 export type NccCategory =

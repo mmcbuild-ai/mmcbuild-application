@@ -166,7 +166,8 @@ export const SECTION_ANALYSIS_TEMPLATE = (
   category: NccCategory,
   planContent: string,
   projectContext: string,
-  nccContext: string
+  nccContext: string,
+  fewShotExamples?: string
 ) => `${SECTION_PROMPTS[category]}
 
 ${projectContext}
@@ -176,6 +177,7 @@ ${planContent || "No specific plan text available for this section."}
 
 RELEVANT NCC REFERENCE MATERIAL:
 ${nccContext || "No specific NCC reference material available. Use your knowledge of the NCC."}
+${fewShotExamples ?? ""}
 
 Respond with a JSON object matching this schema:
 {

@@ -3,10 +3,13 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SeverityBadge } from "./severity-badge";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, ShieldCheck, AlertTriangle } from "lucide-react";
+import { FindingFeedback } from "./finding-feedback";
 
 interface FindingCardProps {
   finding: {
+    id?: string;
+    check_id?: string;
     ncc_section: string;
     category: string;
     title: string;
@@ -16,6 +19,10 @@ interface FindingCardProps {
     confidence: number;
     ncc_citation: string | null;
     page_references: number[] | null;
+    validation_tier?: number | null;
+    agreement_score?: number | null;
+    secondary_model?: string | null;
+    was_reconciled?: boolean | null;
   };
 }
 
@@ -40,6 +47,11 @@ export function FindingCard({ finding }: FindingCardProps) {
                 {finding.ncc_section}
               </span>
               <SeverityBadge severity={finding.severity} />
+              <ValidationBadge
+                agreementScore={finding.agreement_score}
+                wasReconciled={finding.was_reconciled}
+                secondaryModel={finding.secondary_model}
+              />
             </div>
             <CardTitle className="text-sm font-medium">{finding.title}</CardTitle>
           </div>
@@ -94,8 +106,60 @@ export function FindingCard({ finding }: FindingCardProps) {
               </p>
             </div>
           )}
+
+          {finding.agreement_score != null && (
+            <div className="pt-2 border-t">
+              <p className="text-xs text-muted-foreground">
+                Cross-validated ({finding.secondary_model ?? "secondary model"})
+                {" · "}Agreement: {Math.round(finding.agreement_score * 100)}%
+                {finding.was_reconciled && " · Reconciled"}
+              </p>
+            </div>
+          )}
+
+          {finding.id && finding.check_id && (
+            <div className="pt-2 border-t flex justify-end">
+              <FindingFeedback
+                findingId={finding.id}
+                checkId={finding.check_id}
+                currentSeverity={finding.severity}
+              />
+            </div>
+          )}
         </CardContent>
       )}
     </Card>
   );
+}
+
+function ValidationBadge({
+  agreementScore,
+  wasReconciled,
+  secondaryModel,
+}: {
+  agreementScore?: number | null;
+  wasReconciled?: boolean | null;
+  secondaryModel?: string | null;
+}) {
+  if (!secondaryModel) return null;
+
+  if (wasReconciled) {
+    return (
+      <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+        <AlertTriangle className="h-2.5 w-2.5" />
+        Reconciled
+      </span>
+    );
+  }
+
+  if (agreementScore != null && agreementScore >= 0.8) {
+    return (
+      <span className="inline-flex items-center gap-0.5 rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-700">
+        <ShieldCheck className="h-2.5 w-2.5" />
+        Consensus
+      </span>
+    );
+  }
+
+  return null;
 }

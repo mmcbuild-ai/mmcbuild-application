@@ -1,12 +1,8 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { callModel } from "@/lib/ai/models";
 import { extractJson } from "@/lib/ai/extract-json";
 import { RD_STAGES, RD_DELIVERABLES } from "@/lib/rd-constants";
 import type { RdTag } from "@/lib/supabase/types";
 import type { FileMapping } from "./mapper";
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!,
-});
 
 export interface ClassificationResult {
   stage: string;
@@ -23,6 +19,7 @@ export async function classifyCommit(opts: {
   filesChanged: unknown;
   branch: string;
   fileMappings: FileMapping[];
+  orgId?: string;
 }): Promise<ClassificationResult> {
   const stageDefinitions = RD_STAGES.map(
     (s) => `${s.value}: ${s.label}`
@@ -76,22 +73,17 @@ Classification guidelines:
 
 Return ONLY valid JSON.`;
 
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 1024,
+  const result = await callModel("rd_classification", {
     messages: [{ role: "user", content: prompt }],
+    maxTokens: 1024,
+    orgId: opts.orgId,
   });
 
-  const textBlock = response.content.find((block) => block.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("No text response from Claude");
-  }
-
-  const result = extractJson<ClassificationResult>(textBlock.text);
+  const parsed = extractJson<ClassificationResult>(result.text);
 
   console.log(
-    `[RD Classifier] ${opts.sha.slice(0, 7)}: ${result.rd_tag} (${result.confidence}) — ${result.reasoning.slice(0, 80)}`
+    `[RD Classifier] ${opts.sha.slice(0, 7)}: ${parsed.rd_tag} (${parsed.confidence}) — ${parsed.reasoning.slice(0, 80)}`
   );
 
-  return result;
+  return parsed;
 }

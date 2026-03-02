@@ -85,6 +85,7 @@ export const classifyRdCommit = inngest.createFunction(
         filesChanged: commit.files_changed,
         branch: commit.branch ?? "main",
         fileMappings: mappings,
+        orgId,
       });
 
       // File mapping overrides AI for stage/deliverable/tag, but AI provides reasoning

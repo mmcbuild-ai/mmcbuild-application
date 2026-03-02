@@ -402,6 +402,50 @@ export async function getProjectCertifications(projectId: string) {
   return data ?? [];
 }
 
+export async function submitFindingFeedback(
+  findingId: string,
+  checkId: string,
+  rating: -1 | 0 | 1,
+  correctionSeverity?: string,
+  correctionText?: string
+) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: "Not authenticated" };
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("org_id")
+    .eq("user_id", user.id)
+    .single();
+
+  if (!profile) {
+    return { error: "Profile not found" };
+  }
+
+  const admin = createAdminClient();
+  const { error } = await admin.from("finding_feedback").insert({
+    finding_id: findingId,
+    check_id: checkId,
+    org_id: profile.org_id,
+    user_id: user.id,
+    rating,
+    correction_severity: correctionSeverity ?? null,
+    correction_text: correctionText ?? null,
+  } as never);
+
+  if (error) {
+    return { error: `Failed to submit feedback: ${error.message}` };
+  }
+
+  return { success: true };
+}
+
 export async function getProjectChecks(projectId: string) {
   const admin = createAdminClient();
 
