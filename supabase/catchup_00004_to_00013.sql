@@ -756,9 +756,10 @@ CREATE POLICY "Activity log insertable by org members"
 -- Adds project_manager role, org_invitations table, and missing DELETE policies
 
 -- ============================================================
--- 1. Add project_manager to user_role enum
+-- 1. project_manager enum value
 -- ============================================================
-ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'project_manager' AFTER 'admin';
+-- IMPORTANT: ALTER TYPE ... ADD VALUE must be run SEPARATELY (outside a transaction).
+-- Run supabase/catchup_step1_enum.sql FIRST, then run this file.
 
 -- ============================================================
 -- 2. Create invitation_status enum
