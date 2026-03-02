@@ -1,3 +1,49 @@
+export type ContributorDiscipline =
+  | "architect"
+  | "structural_engineer"
+  | "hydraulic_engineer"
+  | "energy_consultant"
+  | "building_surveyor"
+  | "geotechnical_engineer"
+  | "acoustic_engineer"
+  | "fire_engineer"
+  | "landscape_architect"
+  | "builder"
+  | "other";
+
+export const DISCIPLINE_LABELS: Record<ContributorDiscipline, string> = {
+  architect: "Architect",
+  structural_engineer: "Structural Engineer",
+  hydraulic_engineer: "Hydraulic Engineer",
+  energy_consultant: "Energy Consultant",
+  building_surveyor: "Building Surveyor",
+  geotechnical_engineer: "Geotechnical Engineer",
+  acoustic_engineer: "Acoustic Engineer",
+  fire_engineer: "Fire Engineer",
+  landscape_architect: "Landscape Architect",
+  builder: "Builder",
+  other: "Other",
+};
+
+export const CATEGORY_DEFAULT_DISCIPLINE: Record<string, ContributorDiscipline> = {
+  fire_safety: "fire_engineer",
+  structural: "structural_engineer",
+  energy_efficiency: "energy_consultant",
+  accessibility: "architect",
+  waterproofing: "hydraulic_engineer",
+  ventilation: "architect",
+  glazing: "architect",
+  termite: "builder",
+  bushfire: "fire_engineer",
+  weatherproofing: "builder",
+  health_amenity: "architect",
+  safe_movement: "architect",
+  ancillary: "builder",
+  livable_housing: "architect",
+};
+
+export type FindingReviewStatus = "pending" | "accepted" | "amended" | "rejected" | "sent";
+
 export interface ComplianceFinding {
   ncc_section: string;
   category: string;
@@ -8,6 +54,8 @@ export interface ComplianceFinding {
   confidence: number;
   ncc_citation: string;
   page_references: number[];
+  responsible_discipline?: ContributorDiscipline;
+  remediation_action?: string;
 }
 
 export interface ComplianceSectionResult {

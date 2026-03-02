@@ -9,7 +9,7 @@ import {
 import { retrieveContext, retrievePlanChunks } from "@/lib/comply/retriever";
 import { enhancedRetrieve } from "@/lib/comply/enhanced-retriever";
 import { COMPLIANCE_USER_CONTEXT_TEMPLATE } from "@/lib/ai/prompts/compliance-system";
-import { NCC_CATEGORIES, type ComplianceSectionResult, type NccCategory } from "@/lib/ai/types";
+import { NCC_CATEGORIES, CATEGORY_DEFAULT_DISCIPLINE, type ComplianceSectionResult, type NccCategory } from "@/lib/ai/types";
 import {
   crossValidate,
   shouldCrossValidate,
@@ -222,6 +222,10 @@ export const runComplianceCheck = inngest.createFunction(
             secondary_model: v.secondaryModel,
             was_reconciled: v.wasReconciled,
             source_chunk_ids: v.chunkIds,
+            responsible_discipline: finding.responsible_discipline
+              ?? CATEGORY_DEFAULT_DISCIPLINE[finding.category] ?? "builder",
+            remediation_action: finding.remediation_action ?? finding.recommendation,
+            review_status: "pending",
           } as never);
         }
       }

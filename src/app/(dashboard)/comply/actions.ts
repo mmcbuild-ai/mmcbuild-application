@@ -506,3 +506,420 @@ export async function getProjectChecks(projectId: string) {
 
   return data ?? [];
 }
+
+// ============================================================
+// Project Contributors
+// ============================================================
+
+export async function addProjectContributor(
+  projectId: string,
+  data: {
+    contact_name: string;
+    discipline: string;
+    company_name?: string;
+    contact_email?: string;
+    contact_phone?: string;
+    notes?: string;
+  }
+) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("id, org_id")
+    .eq("user_id", user.id)
+    .single();
+
+  if (!profile) return { error: "Profile not found" };
+
+  const admin = createAdminClient();
+  const { data: contributor, error } = await admin
+    .from("project_contributors" as never)
+    .insert({
+      project_id: projectId,
+      org_id: profile.org_id,
+      discipline: data.discipline,
+      contact_name: data.contact_name,
+      company_name: data.company_name ?? null,
+      contact_email: data.contact_email ?? null,
+      contact_phone: data.contact_phone ?? null,
+      notes: data.notes ?? null,
+      created_by: profile.id,
+    } as never)
+    .select("id")
+    .single();
+
+  if (error) return { error: `Failed to add contributor: ${error.message}` };
+
+  return { success: true, contributorId: (contributor as { id: string }).id };
+}
+
+export async function updateProjectContributor(
+  contributorId: string,
+  data: {
+    contact_name?: string;
+    discipline?: string;
+    company_name?: string;
+    contact_email?: string;
+    contact_phone?: string;
+    notes?: string;
+  }
+) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("org_id")
+    .eq("user_id", user.id)
+    .single();
+
+  if (!profile) return { error: "Profile not found" };
+
+  const admin = createAdminClient();
+
+  // Verify ownership
+  const { data: existing } = await admin
+    .from("project_contributors" as never)
+    .select("org_id")
+    .eq("id", contributorId)
+    .single();
+
+  if (!existing || (existing as { org_id: string }).org_id !== profile.org_id) {
+    return { error: "Contributor not found" };
+  }
+
+  const { error } = await admin
+    .from("project_contributors" as never)
+    .update({ ...data, updated_at: new Date().toISOString() } as never)
+    .eq("id", contributorId);
+
+  if (error) return { error: `Failed to update contributor: ${error.message}` };
+
+  return { success: true };
+}
+
+export async function removeProjectContributor(contributorId: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("org_id")
+    .eq("user_id", user.id)
+    .single();
+
+  if (!profile) return { error: "Profile not found" };
+
+  const admin = createAdminClient();
+
+  const { data: existing } = await admin
+    .from("project_contributors" as never)
+    .select("org_id")
+    .eq("id", contributorId)
+    .single();
+
+  if (!existing || (existing as { org_id: string }).org_id !== profile.org_id) {
+    return { error: "Contributor not found" };
+  }
+
+  const { error } = await admin
+    .from("project_contributors" as never)
+    .delete()
+    .eq("id", contributorId);
+
+  if (error) return { error: `Failed to remove contributor: ${error.message}` };
+
+  return { success: true };
+}
+
+export async function getProjectContributors(projectId: string) {
+  const admin = createAdminClient();
+
+  const { data } = await admin
+    .from("project_contributors" as never)
+    .select("id, discipline, company_name, contact_name, contact_email, contact_phone, notes, created_at")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: true });
+
+  return (data ?? []) as {
+    id: string;
+    discipline: string;
+    company_name: string | null;
+    contact_name: string;
+    contact_email: string | null;
+    contact_phone: string | null;
+    notes: string | null;
+    created_at: string;
+  }[];
+}
+
+// ============================================================
+// Finding Review Workflow
+// ============================================================
+
+export async function reviewFinding(
+  findingId: string,
+  action: "accepted" | "rejected",
+  data?: { rejection_reason?: string }
+) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("id, org_id")
+    .eq("user_id", user.id)
+    .single();
+
+  if (!profile) return { error: "Profile not found" };
+
+  const admin = createAdminClient();
+
+  const updateData: Record<string, unknown> = {
+    review_status: action,
+    reviewed_by: profile.id,
+    reviewed_at: new Date().toISOString(),
+  };
+
+  if (action === "rejected" && data?.rejection_reason) {
+    updateData.rejection_reason = data.rejection_reason;
+  }
+
+  const { error } = await admin
+    .from("compliance_findings")
+    .update(updateData as never)
+    .eq("id", findingId);
+
+  if (error) return { error: `Failed to review finding: ${error.message}` };
+
+  // Log activity
+  await admin.from("finding_activity_log").insert({
+    finding_id: findingId,
+    action: action === "accepted" ? "accepted" : "rejected",
+    actor_id: profile.id,
+    details: data?.rejection_reason ? { rejection_reason: data.rejection_reason } : {},
+  } as never);
+
+  return { success: true };
+}
+
+export async function amendFinding(
+  findingId: string,
+  amendments: {
+    amended_description?: string;
+    amended_action?: string;
+    amended_discipline?: string;
+    assigned_contributor_id?: string;
+  }
+) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("id, org_id")
+    .eq("user_id", user.id)
+    .single();
+
+  if (!profile) return { error: "Profile not found" };
+
+  const admin = createAdminClient();
+
+  const { error } = await admin
+    .from("compliance_findings")
+    .update({
+      review_status: "amended",
+      reviewed_by: profile.id,
+      reviewed_at: new Date().toISOString(),
+      amended_description: amendments.amended_description ?? null,
+      amended_action: amendments.amended_action ?? null,
+      amended_discipline: amendments.amended_discipline ?? null,
+      assigned_contributor_id: amendments.assigned_contributor_id ?? null,
+    } as never)
+    .eq("id", findingId);
+
+  if (error) return { error: `Failed to amend finding: ${error.message}` };
+
+  await admin.from("finding_activity_log").insert({
+    finding_id: findingId,
+    action: "amended",
+    actor_id: profile.id,
+    details: amendments,
+  } as never);
+
+  return { success: true };
+}
+
+export async function sendFindingToContributor(findingId: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("id, org_id")
+    .eq("user_id", user.id)
+    .single();
+
+  if (!profile) return { error: "Profile not found" };
+
+  const admin = createAdminClient();
+
+  const { error } = await admin
+    .from("compliance_findings")
+    .update({
+      review_status: "sent",
+      sent_at: new Date().toISOString(),
+    } as never)
+    .eq("id", findingId);
+
+  if (error) return { error: `Failed to send finding: ${error.message}` };
+
+  await admin.from("finding_activity_log").insert({
+    finding_id: findingId,
+    action: "sent",
+    actor_id: profile.id,
+    details: {},
+  } as never);
+
+  return { success: true };
+}
+
+export async function bulkReviewFindings(
+  findingIds: string[],
+  action: "accepted" | "rejected",
+  rejectionReason?: string
+) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("id, org_id")
+    .eq("user_id", user.id)
+    .single();
+
+  if (!profile) return { error: "Profile not found" };
+
+  const admin = createAdminClient();
+
+  const updateData: Record<string, unknown> = {
+    review_status: action,
+    reviewed_by: profile.id,
+    reviewed_at: new Date().toISOString(),
+  };
+
+  if (action === "rejected" && rejectionReason) {
+    updateData.rejection_reason = rejectionReason;
+  }
+
+  const { error } = await admin
+    .from("compliance_findings")
+    .update(updateData as never)
+    .in("id", findingIds);
+
+  if (error) return { error: `Failed to bulk review: ${error.message}` };
+
+  // Log activity for each finding
+  for (const findingId of findingIds) {
+    await admin.from("finding_activity_log").insert({
+      finding_id: findingId,
+      action: `bulk_${action}`,
+      actor_id: profile.id,
+      details: rejectionReason ? { rejection_reason: rejectionReason } : {},
+    } as never);
+  }
+
+  return { success: true };
+}
+
+export async function bulkSendFindings(findingIds: string[]) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("id, org_id")
+    .eq("user_id", user.id)
+    .single();
+
+  if (!profile) return { error: "Profile not found" };
+
+  const admin = createAdminClient();
+
+  const { error } = await admin
+    .from("compliance_findings")
+    .update({
+      review_status: "sent",
+      sent_at: new Date().toISOString(),
+    } as never)
+    .in("id", findingIds);
+
+  if (error) return { error: `Failed to bulk send: ${error.message}` };
+
+  for (const findingId of findingIds) {
+    await admin.from("finding_activity_log").insert({
+      finding_id: findingId,
+      action: "sent",
+      actor_id: profile.id,
+      details: {},
+    } as never);
+  }
+
+  return { success: true };
+}
+
+export async function getWorkflowSummary(checkId: string) {
+  const admin = createAdminClient();
+
+  const { data: findings } = await admin
+    .from("compliance_findings")
+    .select("review_status, responsible_discipline" as never)
+    .eq("check_id", checkId);
+
+  if (!findings) return { total: 0, pending: 0, accepted: 0, amended: 0, rejected: 0, sent: 0 };
+
+  const rows = findings as unknown as { review_status: string | null }[];
+
+  return {
+    total: rows.length,
+    pending: rows.filter((f) => f.review_status === "pending").length,
+    accepted: rows.filter((f) => f.review_status === "accepted").length,
+    amended: rows.filter((f) => f.review_status === "amended").length,
+    rejected: rows.filter((f) => f.review_status === "rejected").length,
+    sent: rows.filter((f) => f.review_status === "sent").length,
+  };
+}

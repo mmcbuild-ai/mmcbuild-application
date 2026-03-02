@@ -4,6 +4,8 @@ import {
   getCategoryLabel,
   getCategoryVolume,
   getCategoryStatus,
+  DISCIPLINE_LABELS,
+  type ContributorDiscipline,
 } from "@/lib/ai/types";
 
 interface Finding {
@@ -16,6 +18,10 @@ interface Finding {
   confidence: number;
   ncc_citation: string | null;
   page_references: number[] | null;
+  responsible_discipline?: string | null;
+  remediation_action?: string | null;
+  review_status?: string | null;
+  assigned_contributor_id?: string | null;
 }
 
 interface ReportData {
@@ -118,6 +124,45 @@ export function generateCompliancePdf(data: ReportData): Uint8Array {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   y = (doc as any).lastAutoTable.finalY + 10;
 
+  // --- Workflow Summary (if findings have review_status) ---
+  const hasWorkflow = data.findings.some((f) => f.review_status != null);
+  if (hasWorkflow) {
+    if (y > 250) {
+      doc.addPage();
+      y = margin;
+    }
+
+    doc.setFontSize(13);
+    doc.setTextColor(0, 0, 0);
+    doc.text("Workflow Summary", margin, y);
+    y += 6;
+
+    const pending = data.findings.filter((f) => f.review_status === "pending").length;
+    const accepted = data.findings.filter((f) => f.review_status === "accepted").length;
+    const amended = data.findings.filter((f) => f.review_status === "amended").length;
+    const rejected = data.findings.filter((f) => f.review_status === "rejected").length;
+    const sent = data.findings.filter((f) => f.review_status === "sent").length;
+
+    autoTable(doc, {
+      startY: y,
+      head: [["Status", "Count"]],
+      body: [
+        ["Pending", `${pending}`],
+        ["Accepted", `${accepted}`],
+        ["Amended", `${amended}`],
+        ["Rejected", `${rejected}`],
+        ["Sent to Contributor", `${sent}`],
+      ],
+      margin: { left: margin, right: margin },
+      headStyles: { fillColor: [30, 30, 30], fontSize: 9 },
+      bodyStyles: { fontSize: 9 },
+      columnStyles: { 0: { cellWidth: 50 } },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    y = (doc as any).lastAutoTable.finalY + 10;
+  }
+
   // --- Findings by Category ---
   for (const category of categories) {
     const catFindings = data.findings.filter((f) => f.category === category);
@@ -135,26 +180,31 @@ export function generateCompliancePdf(data: ReportData): Uint8Array {
     doc.text(`${label} (NCC Volume ${volume})`, margin, y);
     y += 6;
 
+    const getDisciplineLabel = (d?: string | null) => {
+      if (!d) return "-";
+      return DISCIPLINE_LABELS[d as ContributorDiscipline] ?? d.replace(/_/g, " ");
+    };
+
     const rows = catFindings.map((f) => [
       f.ncc_section,
       f.title,
       SEVERITY_LABELS[f.severity] ?? f.severity,
-      `${Math.round(f.confidence * 100)}%`,
-      f.recommendation ?? "-",
+      getDisciplineLabel(f.responsible_discipline),
+      f.remediation_action ?? f.recommendation ?? "-",
     ]);
 
     autoTable(doc, {
       startY: y,
-      head: [["NCC Section", "Finding", "Severity", "Confidence", "Recommendation"]],
+      head: [["NCC Section", "Finding", "Severity", "Assigned To", "Remediation Action"]],
       body: rows,
       margin: { left: margin, right: margin },
       headStyles: { fillColor: [50, 50, 50], fontSize: 8 },
       bodyStyles: { fontSize: 8 },
       columnStyles: {
-        0: { cellWidth: 25 },
-        1: { cellWidth: 40 },
-        2: { cellWidth: 22 },
-        3: { cellWidth: 18 },
+        0: { cellWidth: 22 },
+        1: { cellWidth: 35 },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 28 },
         4: { cellWidth: contentWidth - 105 },
       },
       didParseCell(hookData) {

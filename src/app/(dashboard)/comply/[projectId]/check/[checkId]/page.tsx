@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getComplianceReport } from "../../../actions";
+import { getComplianceReport, getProjectContributors } from "../../../actions";
 import { ComplianceReport } from "@/components/comply/compliance-report";
 import { CheckProgress } from "@/components/comply/check-progress";
+import { WorkflowTabs } from "@/components/comply/workflow-tabs";
 
 export default async function CheckPage({
   params,
@@ -19,13 +20,14 @@ export default async function CheckPage({
 
   const check = result.check as {
     id: string;
+    project_id: string;
     status: string;
     summary: string | null;
     overall_risk: "low" | "medium" | "high" | "critical" | null;
     completed_at: string | null;
   };
 
-  const findings = (result.findings ?? []) as {
+  const findings = (result.findings ?? []) as unknown as {
     id: string;
     ncc_section: string;
     category: string;
@@ -37,7 +39,24 @@ export default async function CheckPage({
     ncc_citation: string | null;
     page_references: number[] | null;
     sort_order: number;
+    responsible_discipline: string | null;
+    assigned_contributor_id: string | null;
+    remediation_action: string | null;
+    review_status: string | null;
+    rejection_reason: string | null;
+    amended_description: string | null;
+    amended_action: string | null;
+    amended_discipline: string | null;
+    sent_at: string | null;
   }[];
+
+  // Detect workflow findings (review_status IS NOT NULL) vs legacy
+  const hasWorkflow = findings.some((f) => f.review_status != null);
+
+  // Load contributors if workflow findings exist
+  const contributors = hasWorkflow
+    ? await getProjectContributors(projectId)
+    : [];
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -52,7 +71,15 @@ export default async function CheckPage({
       </div>
 
       {check.status === "completed" ? (
-        <ComplianceReport check={check} findings={findings} />
+        hasWorkflow ? (
+          <WorkflowTabs
+            check={check}
+            findings={findings}
+            contributors={contributors}
+          />
+        ) : (
+          <ComplianceReport check={check} findings={findings} />
+        )
       ) : (
         <CheckProgress
           checkId={checkId}

@@ -16,6 +16,7 @@ import {
   FileCheck,
   ArrowRight,
   CheckCircle,
+  Users,
 } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -24,6 +25,7 @@ import {
   getProjectQuestionnaire,
   getProjectChecks,
   getProjectCertifications,
+  getProjectContributors,
   requestComplianceCheck,
 } from "../actions";
 
@@ -46,11 +48,12 @@ export default async function ProjectComplyPage({
     redirect("/comply");
   }
 
-  const [plans, questionnaire, checks, certifications] = await Promise.all([
+  const [plans, questionnaire, checks, certifications, contributors] = await Promise.all([
     getProjectPlans(projectId),
     getProjectQuestionnaire(projectId),
     getProjectChecks(projectId),
     getProjectCertifications(projectId),
+    getProjectContributors(projectId),
   ]);
 
   const readyPlan = plans.find(
@@ -75,7 +78,7 @@ export default async function ProjectComplyPage({
       </div>
 
       {/* Step cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         {/* Step 1: Upload */}
         <Card>
           <CardHeader>
@@ -198,12 +201,47 @@ export default async function ProjectComplyPage({
           </CardContent>
         </Card>
 
-        {/* Step 4: Run Check */}
+        {/* Step 4: Project Team */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              <CardTitle className="text-base">4. Project Team</CardTitle>
+            </div>
+            <CardDescription>
+              Assign contributors (optional)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {contributors.length > 0 ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm text-green-600">
+                  <CheckCircle className="h-4 w-4" />
+                  {contributors.length} contributor{contributors.length !== 1 ? "s" : ""}
+                </div>
+                <Link href={`/comply/${projectId}/team`}>
+                  <Button variant="outline" size="sm" className="w-full">
+                    Manage Team
+                  </Button>
+                </Link>
+              </div>
+            ) : (
+              <Link href={`/comply/${projectId}/team`}>
+                <Button variant="outline" size="sm" className="w-full">
+                  <Users className="mr-2 h-4 w-4" />
+                  Add Team
+                </Button>
+              </Link>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Step 5: Run Check */}
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
               <Play className="h-5 w-5" />
-              <CardTitle className="text-base">4. Run Check</CardTitle>
+              <CardTitle className="text-base">5. Run Check</CardTitle>
             </div>
             <CardDescription>
               Generate AI compliance report
