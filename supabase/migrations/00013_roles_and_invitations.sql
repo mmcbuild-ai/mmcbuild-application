@@ -79,59 +79,47 @@ CREATE POLICY "org_invitations_update" ON org_invitations
 
 -- ============================================================
 -- 5. Missing DELETE RLS policies for CRUD completeness
---    Wrapped in DO blocks so each policy is skipped if its table
---    doesn't exist yet (earlier migrations may not have been run).
+--    Requires: 00002 (compliance_checks/findings), 00003 (rd_experiments),
+--              00007 (project_certifications) to have been run first.
 -- ============================================================
 
-DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'compliance_checks') THEN
-    CREATE POLICY "compliance_checks_delete" ON compliance_checks
-      FOR DELETE USING (
-        org_id = get_user_org_id()
-        AND EXISTS (
-          SELECT 1 FROM profiles
-          WHERE profiles.user_id = auth.uid()
-            AND profiles.org_id = compliance_checks.org_id
-            AND profiles.role IN ('owner', 'admin')
-        )
-      );
-  END IF;
-END $$;
+-- compliance_checks: owner/admin can delete
+CREATE POLICY "compliance_checks_delete" ON compliance_checks
+  FOR DELETE USING (
+    org_id = get_user_org_id()
+    AND EXISTS (
+      SELECT 1 FROM profiles
+      WHERE profiles.user_id = auth.uid()
+        AND profiles.org_id = compliance_checks.org_id
+        AND profiles.role IN ('owner', 'admin')
+    )
+  );
 
-DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'compliance_findings') THEN
-    CREATE POLICY "compliance_findings_delete" ON compliance_findings
-      FOR DELETE USING (
-        EXISTS (
-          SELECT 1 FROM compliance_checks cc
-          JOIN profiles p ON p.user_id = auth.uid() AND p.org_id = cc.org_id
-          WHERE cc.id = compliance_findings.check_id
-            AND p.role IN ('owner', 'admin')
-        )
-      );
-  END IF;
-END $$;
+-- compliance_findings: delete via check ownership
+CREATE POLICY "compliance_findings_delete" ON compliance_findings
+  FOR DELETE USING (
+    EXISTS (
+      SELECT 1 FROM compliance_checks cc
+      JOIN profiles p ON p.user_id = auth.uid() AND p.org_id = cc.org_id
+      WHERE cc.id = compliance_findings.check_id
+        AND p.role IN ('owner', 'admin')
+    )
+  );
 
-DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'project_certifications') THEN
-    CREATE POLICY "project_certifications_delete" ON project_certifications
-      FOR DELETE USING (
-        org_id = get_user_org_id()
-        AND EXISTS (
-          SELECT 1 FROM profiles
-          WHERE profiles.user_id = auth.uid()
-            AND profiles.org_id = project_certifications.org_id
-            AND profiles.role IN ('owner', 'admin', 'project_manager')
-        )
-      );
-  END IF;
-END $$;
+-- project_certifications: owner/admin/project_manager can delete
+CREATE POLICY "project_certifications_delete" ON project_certifications
+  FOR DELETE USING (
+    org_id = get_user_org_id()
+    AND EXISTS (
+      SELECT 1 FROM profiles
+      WHERE profiles.user_id = auth.uid()
+        AND profiles.org_id = project_certifications.org_id
+        AND profiles.role IN ('owner', 'admin', 'project_manager')
+    )
+  );
 
-DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'rd_experiments') THEN
-    CREATE POLICY "rd_experiments_delete" ON rd_experiments
-      FOR DELETE USING (
-        org_id = get_user_org_id()
-      );
-  END IF;
-END $$;
+-- rd_experiments: org members can delete their org's experiments
+CREATE POLICY "rd_experiments_delete" ON rd_experiments
+  FOR DELETE USING (
+    org_id = get_user_org_id()
+  );
