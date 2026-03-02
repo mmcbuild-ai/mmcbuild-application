@@ -37,9 +37,11 @@ CREATE TABLE IF NOT EXISTS rd_tracking_config (
 
 ALTER TABLE rd_tracking_config ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "rd_tracking_config_select" ON rd_tracking_config;
 CREATE POLICY "rd_tracking_config_select" ON rd_tracking_config
   FOR SELECT USING (org_id = get_user_org_id());
 
+DROP POLICY IF EXISTS "rd_tracking_config_insert" ON rd_tracking_config;
 CREATE POLICY "rd_tracking_config_insert" ON rd_tracking_config
   FOR INSERT WITH CHECK (
     org_id = get_user_org_id()
@@ -51,6 +53,7 @@ CREATE POLICY "rd_tracking_config_insert" ON rd_tracking_config
     )
   );
 
+DROP POLICY IF EXISTS "rd_tracking_config_update" ON rd_tracking_config;
 CREATE POLICY "rd_tracking_config_update" ON rd_tracking_config
   FOR UPDATE USING (
     org_id = get_user_org_id()
@@ -82,11 +85,12 @@ CREATE TABLE IF NOT EXISTS rd_commit_logs (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE UNIQUE INDEX idx_rd_commit_logs_org_sha ON rd_commit_logs(org_id, sha);
-CREATE INDEX idx_rd_commit_logs_status ON rd_commit_logs(status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rd_commit_logs_org_sha ON rd_commit_logs(org_id, sha);
+CREATE INDEX IF NOT EXISTS idx_rd_commit_logs_status ON rd_commit_logs(status);
 
 ALTER TABLE rd_commit_logs ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "rd_commit_logs_select" ON rd_commit_logs;
 CREATE POLICY "rd_commit_logs_select" ON rd_commit_logs
   FOR SELECT USING (org_id = get_user_org_id());
 
@@ -114,15 +118,17 @@ CREATE TABLE IF NOT EXISTS rd_auto_entries (
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_rd_auto_entries_org_id ON rd_auto_entries(org_id);
-CREATE INDEX idx_rd_auto_entries_review_status ON rd_auto_entries(org_id, review_status);
-CREATE INDEX idx_rd_auto_entries_commit_id ON rd_auto_entries(commit_id);
+CREATE INDEX IF NOT EXISTS idx_rd_auto_entries_org_id ON rd_auto_entries(org_id);
+CREATE INDEX IF NOT EXISTS idx_rd_auto_entries_review_status ON rd_auto_entries(org_id, review_status);
+CREATE INDEX IF NOT EXISTS idx_rd_auto_entries_commit_id ON rd_auto_entries(commit_id);
 
 ALTER TABLE rd_auto_entries ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "rd_auto_entries_select" ON rd_auto_entries;
 CREATE POLICY "rd_auto_entries_select" ON rd_auto_entries
   FOR SELECT USING (org_id = get_user_org_id());
 
+DROP POLICY IF EXISTS "rd_auto_entries_update" ON rd_auto_entries;
 CREATE POLICY "rd_auto_entries_update" ON rd_auto_entries
   FOR UPDATE USING (org_id = get_user_org_id());
 
@@ -142,13 +148,15 @@ CREATE TABLE IF NOT EXISTS rd_file_mappings (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_rd_file_mappings_org_id ON rd_file_mappings(org_id);
+CREATE INDEX IF NOT EXISTS idx_rd_file_mappings_org_id ON rd_file_mappings(org_id);
 
 ALTER TABLE rd_file_mappings ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "rd_file_mappings_select" ON rd_file_mappings;
 CREATE POLICY "rd_file_mappings_select" ON rd_file_mappings
   FOR SELECT USING (org_id = get_user_org_id());
 
+DROP POLICY IF EXISTS "rd_file_mappings_insert" ON rd_file_mappings;
 CREATE POLICY "rd_file_mappings_insert" ON rd_file_mappings
   FOR INSERT WITH CHECK (
     org_id = get_user_org_id()
@@ -160,6 +168,7 @@ CREATE POLICY "rd_file_mappings_insert" ON rd_file_mappings
     )
   );
 
+DROP POLICY IF EXISTS "rd_file_mappings_update" ON rd_file_mappings;
 CREATE POLICY "rd_file_mappings_update" ON rd_file_mappings
   FOR UPDATE USING (
     org_id = get_user_org_id()
@@ -171,6 +180,7 @@ CREATE POLICY "rd_file_mappings_update" ON rd_file_mappings
     )
   );
 
+DROP POLICY IF EXISTS "rd_file_mappings_delete" ON rd_file_mappings;
 CREATE POLICY "rd_file_mappings_delete" ON rd_file_mappings
   FOR DELETE USING (
     org_id = get_user_org_id()
@@ -187,10 +197,12 @@ CREATE POLICY "rd_file_mappings_delete" ON rd_file_mappings
 -- PART 6: Updated_at triggers
 -- ============================================================
 
+DROP TRIGGER IF EXISTS set_rd_tracking_config_updated_at ON rd_tracking_config;
 CREATE TRIGGER set_rd_tracking_config_updated_at
   BEFORE UPDATE ON rd_tracking_config
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
+DROP TRIGGER IF EXISTS set_rd_auto_entries_updated_at ON rd_auto_entries;
 CREATE TRIGGER set_rd_auto_entries_updated_at
   BEFORE UPDATE ON rd_auto_entries
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
@@ -447,8 +459,8 @@ CREATE TABLE IF NOT EXISTS ai_usage_log (
 );
 
 -- Index for querying by org and time
-CREATE INDEX idx_ai_usage_log_org_created ON ai_usage_log(org_id, created_at DESC);
-CREATE INDEX idx_ai_usage_log_check ON ai_usage_log(check_id) WHERE check_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_ai_usage_log_org_created ON ai_usage_log(org_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_log_check ON ai_usage_log(check_id) WHERE check_id IS NOT NULL;
 
 -- RLS: org-scoped SELECT only (inserts via service role)
 ALTER TABLE ai_usage_log ENABLE ROW LEVEL SECURITY;
@@ -547,9 +559,9 @@ CREATE TABLE IF NOT EXISTS finding_feedback (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX idx_finding_feedback_finding ON finding_feedback(finding_id);
-CREATE INDEX idx_finding_feedback_org ON finding_feedback(org_id, created_at DESC);
-CREATE INDEX idx_finding_feedback_check ON finding_feedback(check_id);
+CREATE INDEX IF NOT EXISTS idx_finding_feedback_finding ON finding_feedback(finding_id);
+CREATE INDEX IF NOT EXISTS idx_finding_feedback_org ON finding_feedback(org_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_finding_feedback_check ON finding_feedback(check_id);
 
 -- RLS
 ALTER TABLE finding_feedback ENABLE ROW LEVEL SECURITY;
@@ -594,6 +606,7 @@ $$;
 -- ENUMS
 -- ============================================================
 
+DO $$ BEGIN
 CREATE TYPE contributor_discipline AS ENUM (
   'architect',
   'structural_engineer',
@@ -607,7 +620,10 @@ CREATE TYPE contributor_discipline AS ENUM (
   'builder',
   'other'
 );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
+DO $$ BEGIN
 CREATE TYPE finding_review_status AS ENUM (
   'pending',
   'accepted',
@@ -615,13 +631,15 @@ CREATE TYPE finding_review_status AS ENUM (
   'rejected',
   'sent'
 );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================================
 -- TABLE: project_contributors
 -- External contacts (not platform users) assigned to a project.
 -- ============================================================
 
-CREATE TABLE project_contributors (
+CREATE TABLE IF NOT EXISTS project_contributors (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   org_id UUID NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
@@ -636,8 +654,8 @@ CREATE TABLE project_contributors (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_project_contributors_project ON project_contributors(project_id);
-CREATE INDEX idx_project_contributors_org ON project_contributors(org_id);
+CREATE INDEX IF NOT EXISTS idx_project_contributors_project ON project_contributors(project_id);
+CREATE INDEX IF NOT EXISTS idx_project_contributors_org ON project_contributors(org_id);
 
 ALTER TABLE project_contributors ENABLE ROW LEVEL SECURITY;
 
@@ -663,28 +681,28 @@ CREATE POLICY "Contributors deletable by org members"
 -- ============================================================
 
 ALTER TABLE compliance_findings
-  ADD COLUMN responsible_discipline contributor_discipline,
-  ADD COLUMN assigned_contributor_id UUID REFERENCES project_contributors(id) ON DELETE SET NULL,
-  ADD COLUMN remediation_action TEXT,
-  ADD COLUMN review_status finding_review_status,
-  ADD COLUMN reviewed_by UUID REFERENCES profiles(id),
-  ADD COLUMN reviewed_at TIMESTAMPTZ,
-  ADD COLUMN rejection_reason TEXT,
-  ADD COLUMN amended_description TEXT,
-  ADD COLUMN amended_action TEXT,
-  ADD COLUMN amended_discipline contributor_discipline,
-  ADD COLUMN sent_at TIMESTAMPTZ;
+  ADD COLUMN IF NOT EXISTS responsible_discipline contributor_discipline,
+  ADD COLUMN IF NOT EXISTS assigned_contributor_id UUID REFERENCES project_contributors(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS remediation_action TEXT,
+  ADD COLUMN IF NOT EXISTS review_status finding_review_status,
+  ADD COLUMN IF NOT EXISTS reviewed_by UUID REFERENCES profiles(id),
+  ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS rejection_reason TEXT,
+  ADD COLUMN IF NOT EXISTS amended_description TEXT,
+  ADD COLUMN IF NOT EXISTS amended_action TEXT,
+  ADD COLUMN IF NOT EXISTS amended_discipline contributor_discipline,
+  ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
 
-CREATE INDEX idx_compliance_findings_review_status ON compliance_findings(review_status)
+CREATE INDEX IF NOT EXISTS idx_compliance_findings_review_status ON compliance_findings(review_status)
   WHERE review_status IS NOT NULL;
-CREATE INDEX idx_compliance_findings_discipline ON compliance_findings(responsible_discipline)
+CREATE INDEX IF NOT EXISTS idx_compliance_findings_discipline ON compliance_findings(responsible_discipline)
   WHERE responsible_discipline IS NOT NULL;
 
 -- ============================================================
 -- TABLE: finding_activity_log — lightweight audit trail
 -- ============================================================
 
-CREATE TABLE finding_activity_log (
+CREATE TABLE IF NOT EXISTS finding_activity_log (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   finding_id UUID NOT NULL REFERENCES compliance_findings(id) ON DELETE CASCADE,
   action TEXT NOT NULL,
@@ -693,7 +711,7 @@ CREATE TABLE finding_activity_log (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_finding_activity_log_finding ON finding_activity_log(finding_id);
+CREATE INDEX IF NOT EXISTS idx_finding_activity_log_finding ON finding_activity_log(finding_id);
 
 ALTER TABLE finding_activity_log ENABLE ROW LEVEL SECURITY;
 
@@ -764,6 +782,7 @@ CREATE INDEX IF NOT EXISTS idx_org_invitations_token ON org_invitations(token);
 ALTER TABLE org_invitations ENABLE ROW LEVEL SECURITY;
 
 -- Owners and admins can view invitations for their org
+DROP POLICY IF EXISTS "org_invitations_select" ON org_invitations;
 CREATE POLICY "org_invitations_select" ON org_invitations
   FOR SELECT USING (
     org_id = get_user_org_id()
@@ -776,6 +795,7 @@ CREATE POLICY "org_invitations_select" ON org_invitations
   );
 
 -- Owners and admins can create invitations
+DROP POLICY IF EXISTS "org_invitations_insert" ON org_invitations;
 CREATE POLICY "org_invitations_insert" ON org_invitations
   FOR INSERT WITH CHECK (
     org_id = get_user_org_id()
@@ -788,6 +808,7 @@ CREATE POLICY "org_invitations_insert" ON org_invitations
   );
 
 -- Owners and admins can update invitations (revoke, etc.)
+DROP POLICY IF EXISTS "org_invitations_update" ON org_invitations;
 CREATE POLICY "org_invitations_update" ON org_invitations
   FOR UPDATE USING (
     org_id = get_user_org_id()
@@ -806,6 +827,7 @@ CREATE POLICY "org_invitations_update" ON org_invitations
 -- ============================================================
 
 -- compliance_checks: owner/admin can delete
+DROP POLICY IF EXISTS "compliance_checks_delete" ON compliance_checks;
 CREATE POLICY "compliance_checks_delete" ON compliance_checks
   FOR DELETE USING (
     org_id = get_user_org_id()
@@ -818,6 +840,7 @@ CREATE POLICY "compliance_checks_delete" ON compliance_checks
   );
 
 -- compliance_findings: delete via check ownership
+DROP POLICY IF EXISTS "compliance_findings_delete" ON compliance_findings;
 CREATE POLICY "compliance_findings_delete" ON compliance_findings
   FOR DELETE USING (
     EXISTS (
@@ -829,6 +852,7 @@ CREATE POLICY "compliance_findings_delete" ON compliance_findings
   );
 
 -- project_certifications: owner/admin/project_manager can delete
+DROP POLICY IF EXISTS "project_certifications_delete" ON project_certifications;
 CREATE POLICY "project_certifications_delete" ON project_certifications
   FOR DELETE USING (
     org_id = get_user_org_id()
@@ -841,6 +865,7 @@ CREATE POLICY "project_certifications_delete" ON project_certifications
   );
 
 -- rd_experiments: org members can delete their org's experiments
+DROP POLICY IF EXISTS "rd_experiments_delete" ON rd_experiments;
 CREATE POLICY "rd_experiments_delete" ON rd_experiments
   FOR DELETE USING (
     org_id = get_user_org_id()
