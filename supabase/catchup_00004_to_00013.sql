@@ -270,6 +270,7 @@ create table if not exists public.project_site_intel (
 create index if not exists idx_project_site_intel_org_id on public.project_site_intel(org_id);
 
 -- Updated-at trigger
+DROP TRIGGER IF EXISTS project_site_intel_updated_at ON public.project_site_intel;
 create trigger project_site_intel_updated_at
   before update on public.project_site_intel
   for each row execute function public.update_updated_at();
