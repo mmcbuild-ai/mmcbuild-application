@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,16 +13,35 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createProject } from "@/app/(dashboard)/projects/actions";
 import { Plus } from "lucide-react";
+import { AddressAutocomplete } from "@/components/common/address-autocomplete";
+import type { GeocodedAddress } from "@/lib/mapbox-types";
 
 export function CreateProjectDialog() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const geocodedRef = useRef<GeocodedAddress | null>(null);
+
+  function handleAddressSelect(address: GeocodedAddress) {
+    geocodedRef.current = address;
+  }
 
   async function handleSubmit(formData: FormData) {
+    // Inject geocoded fields into FormData
+    const geo = geocodedRef.current;
+    if (geo) {
+      formData.set("address", geo.formatted_address);
+      formData.set("latitude", String(geo.latitude));
+      formData.set("longitude", String(geo.longitude));
+      formData.set("suburb", geo.suburb ?? "");
+      formData.set("postcode", geo.postcode ?? "");
+      formData.set("state", geo.state ?? "");
+    }
+
     setLoading(true);
     try {
       await createProject(formData);
       setOpen(false);
+      geocodedRef.current = null;
     } finally {
       setLoading(false);
     }
@@ -51,11 +70,10 @@ export function CreateProjectDialog() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="address">Address (optional)</Label>
-            <Input
-              id="address"
-              name="address"
-              placeholder="e.g. 42 Smith St, Sydney NSW 2000"
+            <Label>Address</Label>
+            <AddressAutocomplete
+              onSelect={handleAddressSelect}
+              placeholder="Start typing an Australian address…"
             />
           </div>
           <div className="flex justify-end gap-2">

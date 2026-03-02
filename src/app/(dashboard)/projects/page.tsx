@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import Link from "next/link";
 import {
   Card,
   CardContent,
@@ -33,22 +34,24 @@ export default async function ProjectsPage() {
       {projects && projects.length > 0 ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {projects.map((project) => (
-            <Card key={project.id} className="hover:shadow-md transition-shadow">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">{project.name}</CardTitle>
-                  <Badge variant="secondary" className="capitalize">
-                    {project.status}
-                  </Badge>
-                </div>
-                <CardDescription>{project.address ?? "No address"}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-xs text-muted-foreground">
-                  Created {new Date(project.created_at).toLocaleDateString("en-AU")}
-                </p>
-              </CardContent>
-            </Card>
+            <Link key={project.id} href={`/projects/${project.id}`}>
+              <Card className="hover:shadow-md transition-shadow h-full">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg">{project.name}</CardTitle>
+                    <Badge variant="secondary" className="capitalize">
+                      {project.status}
+                    </Badge>
+                  </div>
+                  <CardDescription>{project.address ?? "No address"}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xs text-muted-foreground">
+                    Created {new Date(project.created_at).toLocaleDateString("en-AU")}
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
           ))}
         </div>
       ) : (
