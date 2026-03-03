@@ -199,6 +199,90 @@ export interface DesignOptimisationResult {
   suggestions: DesignSuggestion[];
 }
 
+// ── Cost Estimation types ──
+
+export type CostLineSource = "ai_estimated" | "reference" | "user_override";
+
+export const COST_CATEGORIES = [
+  { key: "preliminaries", label: "Preliminaries" },
+  { key: "substructure", label: "Substructure" },
+  { key: "frame", label: "Frame" },
+  { key: "roof", label: "Roof" },
+  { key: "external_walls", label: "External Walls & Cladding" },
+  { key: "windows_doors", label: "Windows & External Doors" },
+  { key: "internal_walls", label: "Internal Walls & Partitions" },
+  { key: "internal_doors", label: "Internal Doors" },
+  { key: "wall_finishes", label: "Wall Finishes" },
+  { key: "floor_finishes", label: "Floor Finishes" },
+  { key: "ceiling_finishes", label: "Ceiling Finishes" },
+  { key: "fitments", label: "Fitments" },
+  { key: "plumbing", label: "Plumbing & Drainage" },
+  { key: "electrical", label: "Electrical" },
+  { key: "mechanical", label: "Mechanical (HVAC)" },
+  { key: "fire_services", label: "Fire Services" },
+  { key: "external_works", label: "External Works" },
+  { key: "contingency", label: "Contingency" },
+] as const;
+
+export type CostCategory = (typeof COST_CATEGORIES)[number]["key"];
+
+export function getCostCategoryLabel(category: string): string {
+  const cat = COST_CATEGORIES.find((c) => c.key === category);
+  return cat?.label ?? category.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+export interface CostLineItem {
+  cost_category: string;
+  element_description: string;
+  quantity: number;
+  unit: string;
+  traditional_rate: number;
+  traditional_total: number;
+  mmc_rate: number | null;
+  mmc_total: number | null;
+  mmc_alternative: string | null;
+  savings_pct: number | null;
+  source: CostLineSource;
+  confidence: number;
+}
+
+export interface CostCategoryResult {
+  category: string;
+  line_items: CostLineItem[];
+}
+
+export interface CostEstimationResult {
+  categories: CostCategoryResult[];
+}
+
+/** Regional multipliers relative to NSW baseline (1.0) */
+export const REGIONAL_MULTIPLIERS: Record<string, number> = {
+  NSW: 1.0,
+  VIC: 0.95,
+  QLD: 0.88,
+  WA: 0.92,
+  SA: 0.82,
+  TAS: 0.85,
+  ACT: 1.02,
+  NT: 1.15,
+};
+
+/** Cost estimation execution phases — categories in the same phase run concurrently */
+export const COST_EXECUTION_PHASES: CostCategory[][] = [
+  // Phase A: Independent foundations
+  ["preliminaries", "substructure"],
+  // Phase B: Superstructure depends on substructure
+  ["frame", "roof", "external_walls"],
+  // Phase C: Depends on envelope
+  ["windows_doors", "internal_walls", "internal_doors"],
+  // Phase D: Services depend on layout
+  ["plumbing", "electrical", "mechanical", "fire_services"],
+  // Phase E: Finishes & fitments
+  ["wall_finishes", "floor_finishes", "ceiling_finishes", "fitments"],
+  // Phase F: External works + contingency rollup
+  ["external_works", "contingency"],
+];
+
 export type CategoryStatus = "passed" | "issues" | "failed";
 
 export function getCategoryStatus(

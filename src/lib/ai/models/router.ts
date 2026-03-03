@@ -13,6 +13,7 @@ const ROUTING_TABLE: Record<AIFunction, string[]> = {
   compliance_primary: ["claude-sonnet-4", "gpt-4o", "claude-haiku-4.5"],
   compliance_validator: ["gpt-4o", "claude-haiku-4.5", "gpt-4o-mini"],
   design_primary: ["claude-sonnet-4", "gpt-4o"],
+  cost_primary: ["claude-sonnet-4", "gpt-4o", "claude-haiku-4.5"],
   summary: ["claude-sonnet-4", "gpt-4o"],
   rd_classification: ["claude-haiku-4.5", "gpt-4o-mini"],
   embedding: ["text-embedding-3-small"],

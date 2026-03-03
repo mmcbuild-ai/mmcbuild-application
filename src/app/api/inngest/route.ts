@@ -8,10 +8,11 @@ import { classifyRdCommit } from "@/lib/inngest/functions/classify-rd-commit";
 import { processCertification } from "@/lib/inngest/functions/process-certification";
 import { sendRemediationEmail } from "@/lib/inngest/functions/send-remediation-email";
 import { runDesignOptimisation } from "@/lib/inngest/functions/run-design-optimisation";
+import { runCostEstimation } from "@/lib/inngest/functions/run-cost-estimation";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [testFunction, processPlan, runComplianceCheck, processKbDocument, classifyRdCommit, processCertification, sendRemediationEmail, runDesignOptimisation],
+  functions: [testFunction, processPlan, runComplianceCheck, processKbDocument, classifyRdCommit, processCertification, sendRemediationEmail, runDesignOptimisation, runCostEstimation],
   // Force Inngest to call back to the production URL instead of the
   // deployment-specific URL which is behind Vercel Deployment Protection.
   serveHost: process.env.NEXT_PUBLIC_APP_URL || undefined,

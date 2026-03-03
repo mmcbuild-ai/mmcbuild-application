@@ -17,6 +17,7 @@ export type AIFunction =
   | "compliance_primary"
   | "compliance_validator"
   | "design_primary"
+  | "cost_primary"
   | "summary"
   | "rd_classification"
   | "embedding"
