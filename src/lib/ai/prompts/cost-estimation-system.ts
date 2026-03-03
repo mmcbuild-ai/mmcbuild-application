@@ -118,7 +118,9 @@ Return a JSON object:
       "mmc_alternative": null,
       "savings_pct": null,
       "source": "ai_estimated",
-      "confidence": 0.9
+      "confidence": 0.9,
+      "rate_source_name": "AI Estimated",
+      "rate_source_detail": null
     }
   ]
 }`;

@@ -213,10 +213,12 @@ export const runCostEstimation = inngest.createFunction(
     // 8. Store all line items
     await step.run("store-line-items", async () => {
       let sortOrder = 0;
+      // Detect if provenance columns exist by trying one insert with them
+      let hasProvenanceCols = true;
 
       for (const [, categoryResult] of resultMap) {
         for (const li of categoryResult.line_items) {
-          await db().from("cost_line_items").insert({
+          const baseRow = {
             estimate_id: estimate.id,
             cost_category: li.cost_category,
             element_description: li.element_description,
@@ -230,10 +232,23 @@ export const runCostEstimation = inngest.createFunction(
             savings_pct: li.savings_pct,
             source: li.source,
             confidence: li.confidence,
-            rate_source_name: li.rate_source_name ?? null,
-            rate_source_detail: li.rate_source_detail ?? null,
             sort_order: sortOrder++,
-          });
+          };
+
+          if (hasProvenanceCols) {
+            const { error } = await db().from("cost_line_items").insert({
+              ...baseRow,
+              rate_source_name: li.rate_source_name ?? null,
+              rate_source_detail: li.rate_source_detail ?? null,
+            });
+            if (error?.message?.includes("rate_source_name") || error?.message?.includes("column")) {
+              // Provenance columns don't exist yet — fall back to base insert
+              hasProvenanceCols = false;
+              await db().from("cost_line_items").insert(baseRow);
+            }
+          } else {
+            await db().from("cost_line_items").insert(baseRow);
+          }
         }
       }
     });
