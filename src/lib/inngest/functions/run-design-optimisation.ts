@@ -1,0 +1,148 @@
+import { inngest } from "../client";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { retrievePlanChunks } from "@/lib/comply/retriever";
+import { callModel } from "@/lib/ai/models/router";
+import { extractJson } from "@/lib/ai/extract-json";
+import {
+  OPTIMISATION_SYSTEM_PROMPT,
+  OPTIMISATION_USER_PROMPT,
+  OPTIMISATION_SUMMARY_PROMPT,
+} from "@/lib/ai/prompts/optimisation-system";
+import type { DesignOptimisationResult } from "@/lib/ai/types";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function db() { return createAdminClient() as unknown as any; }
+
+export const runDesignOptimisation = inngest.createFunction(
+  {
+    id: "run-design-optimisation",
+    name: "Run Design Optimisation",
+    retries: 1,
+  },
+  { event: "design/optimisation.requested" },
+  async ({ event, step }) => {
+    const { projectId, planId } = event.data;
+
+    // 1. Load design check record
+    const check = await step.run("load-check", async () => {
+      const { data, error } = await db()
+        .from("design_checks")
+        .select("id, org_id, plan_id")
+        .eq("project_id", projectId)
+        .eq("plan_id", planId)
+        .eq("status", "queued")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (error || !data) {
+        throw new Error(`Design check not found: ${error?.message}`);
+      }
+
+      return data as { id: string; org_id: string; plan_id: string };
+    });
+
+    // 2. Update status to processing
+    await step.run("update-status-processing", async () => {
+      await db()
+        .from("design_checks")
+        .update({
+          status: "processing",
+          started_at: new Date().toISOString(),
+        } as never)
+        .eq("id", check.id);
+    });
+
+    // 3. Load plan content (reuses Comply's retriever)
+    const planContent = await step.run("load-plan-content", async () => {
+      return await retrievePlanChunks(check.org_id, check.plan_id);
+    });
+
+    if (!planContent) {
+      await step.run("update-status-error-no-content", async () => {
+        const admin = createAdminClient();
+        await admin
+          .from("design_checks")
+          .update({
+            status: "error",
+            summary: "No plan content found. Ensure the plan has been processed.",
+          } as never)
+          .eq("id", check.id);
+      });
+      return { checkId: check.id, error: "No plan content" };
+    }
+
+    // 4. Analyse design with AI
+    const suggestions = await step.run("analyse-design", async () => {
+      const result = await callModel("design_primary", {
+        system: OPTIMISATION_SYSTEM_PROMPT,
+        messages: [{ role: "user", content: OPTIMISATION_USER_PROMPT(planContent) }],
+        maxTokens: 4096,
+        orgId: check.org_id,
+        checkId: check.id,
+      });
+
+      const parsed = extractJson<DesignOptimisationResult>(result.text);
+      return parsed.suggestions;
+    });
+
+    // 5. Store suggestions
+    await step.run("store-suggestions", async () => {
+      for (let i = 0; i < suggestions.length; i++) {
+        const s = suggestions[i];
+        await db().from("design_suggestions").insert({
+          check_id: check.id,
+          technology_category: s.technology_category,
+          current_approach: s.current_approach,
+          suggested_alternative: s.suggested_alternative,
+          benefits: s.benefits,
+          estimated_time_savings: s.estimated_time_savings,
+          estimated_cost_savings: s.estimated_cost_savings,
+          estimated_waste_reduction: s.estimated_waste_reduction,
+          implementation_complexity: s.implementation_complexity,
+          confidence: s.confidence,
+          sort_order: i,
+        } as never);
+      }
+    });
+
+    // 6. Generate executive summary
+    const summary = await step.run("generate-summary", async () => {
+      const suggestionsText = suggestions
+        .map(
+          (s, i) =>
+            `${i + 1}. [${s.technology_category}] Replace "${s.current_approach}" with "${s.suggested_alternative}" — ` +
+            `Time: -${s.estimated_time_savings}%, Cost: -${s.estimated_cost_savings}%, Waste: -${s.estimated_waste_reduction}% ` +
+            `(Complexity: ${s.implementation_complexity}, Confidence: ${Math.round(s.confidence * 100)}%)`
+        )
+        .join("\n");
+
+      const result = await callModel("summary", {
+        system: "You are a concise technical writer for Australian construction reports.",
+        messages: [{ role: "user", content: OPTIMISATION_SUMMARY_PROMPT(suggestionsText) }],
+        maxTokens: 2048,
+        orgId: check.org_id,
+        checkId: check.id,
+      });
+
+      return result.text;
+    });
+
+    // 7. Update status to completed
+    await step.run("update-status-completed", async () => {
+      await db()
+        .from("design_checks")
+        .update({
+          status: "completed",
+          summary,
+          completed_at: new Date().toISOString(),
+        } as never)
+        .eq("id", check.id);
+    });
+
+    return {
+      checkId: check.id,
+      totalSuggestions: suggestions.length,
+    };
+  }
+);

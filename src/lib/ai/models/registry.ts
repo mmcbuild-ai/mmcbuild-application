@@ -16,6 +16,7 @@ export type ModelCapability =
 export type AIFunction =
   | "compliance_primary"
   | "compliance_validator"
+  | "design_primary"
   | "summary"
   | "rd_classification"
   | "embedding"

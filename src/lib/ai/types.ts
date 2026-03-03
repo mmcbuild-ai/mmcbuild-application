@@ -149,6 +149,56 @@ export function getCategoryLabel(category: string): string {
   return cat?.label ?? category.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+// ── Design Optimisation types ──
+
+export type ImplementationComplexity = "low" | "medium" | "high";
+
+export const COMPLEXITY_LABELS: Record<ImplementationComplexity, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+};
+
+export const COMPLEXITY_COLOURS: Record<ImplementationComplexity, string> = {
+  low: "bg-green-100 text-green-700",
+  medium: "bg-amber-100 text-amber-700",
+  high: "bg-red-100 text-red-700",
+};
+
+export const MMC_TECHNOLOGY_CATEGORIES = [
+  { key: "prefabricated_wall_panels", label: "Prefabricated Wall Panels" },
+  { key: "sip_panels", label: "SIP Panels" },
+  { key: "clt_mass_timber", label: "CLT / Mass Timber" },
+  { key: "modular_pods", label: "Modular Pods (Bathrooms/Kitchens)" },
+  { key: "prefab_roof_trusses", label: "Prefabricated Roof Trusses" },
+  { key: "precast_concrete", label: "Precast Concrete Elements" },
+  { key: "steel_framing", label: "Light-Gauge Steel Framing" },
+  { key: "hybrid_systems", label: "Hybrid / Other MMC Systems" },
+] as const;
+
+export type MmcTechnologyCategory = (typeof MMC_TECHNOLOGY_CATEGORIES)[number]["key"];
+
+export function getTechnologyLabel(category: string): string {
+  const cat = MMC_TECHNOLOGY_CATEGORIES.find((c) => c.key === category);
+  return cat?.label ?? category.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+export interface DesignSuggestion {
+  technology_category: string;
+  current_approach: string;
+  suggested_alternative: string;
+  benefits: string;
+  estimated_time_savings: number;
+  estimated_cost_savings: number;
+  estimated_waste_reduction: number;
+  implementation_complexity: ImplementationComplexity;
+  confidence: number;
+}
+
+export interface DesignOptimisationResult {
+  suggestions: DesignSuggestion[];
+}
+
 export type CategoryStatus = "passed" | "issues" | "failed";
 
 export function getCategoryStatus(
