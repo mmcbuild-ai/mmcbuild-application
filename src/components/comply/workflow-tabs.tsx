@@ -3,6 +3,7 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ComplianceReport } from "./compliance-report";
 import { WorkflowReport } from "./workflow-report";
+import { ActionItems } from "./action-items";
 
 interface Finding {
   id: string;
@@ -55,12 +56,31 @@ export function WorkflowTabs({
   contributors,
   projectId,
 }: WorkflowTabsProps) {
+  const hasFlagged = findings.some(
+    (f) => f.severity === "non_compliant" || f.severity === "critical"
+  );
+
+  const defaultTab = hasFlagged ? "action-items" : "workflow";
+
   return (
-    <Tabs defaultValue="workflow">
+    <Tabs defaultValue={defaultTab}>
       <TabsList>
+        {hasFlagged && (
+          <TabsTrigger value="action-items">Action Items</TabsTrigger>
+        )}
         <TabsTrigger value="workflow">Workflow</TabsTrigger>
         <TabsTrigger value="report">Report</TabsTrigger>
       </TabsList>
+
+      {hasFlagged && (
+        <TabsContent value="action-items">
+          <ActionItems
+            findings={findings}
+            contributors={contributors}
+            projectId={projectId}
+          />
+        </TabsContent>
+      )}
 
       <TabsContent value="workflow">
         <WorkflowReport findings={findings} contributors={contributors} projectId={projectId} />

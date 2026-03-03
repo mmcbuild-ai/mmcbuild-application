@@ -1,33 +1,68 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, CheckCircle, XCircle } from "lucide-react";
+import { Loader2, CheckCircle, XCircle, Clock } from "lucide-react";
 import { getComplianceReport } from "@/app/(dashboard)/comply/actions";
+import { getCategoryLabel } from "@/lib/ai/types";
 
 interface CheckProgressProps {
   checkId: string;
   initialStatus: string;
+  initialProgressCurrent?: string | null;
+  initialProgressCompleted?: string[];
 }
 
-export function CheckProgress({ checkId, initialStatus }: CheckProgressProps) {
+export function CheckProgress({
+  checkId,
+  initialStatus,
+  initialProgressCurrent,
+  initialProgressCompleted,
+}: CheckProgressProps) {
   const router = useRouter();
   const [status, setStatus] = useState(initialStatus);
+  const [progressCurrent, setProgressCurrent] = useState<string | null>(
+    initialProgressCurrent ?? null
+  );
+  const [progressCompleted, setProgressCompleted] = useState<string[]>(
+    initialProgressCompleted ?? []
+  );
+  const startTimeRef = useRef(Date.now());
+  const [elapsed, setElapsed] = useState(0);
 
+  // Elapsed time ticker
+  useEffect(() => {
+    if (status === "completed" || status === "error") return;
+
+    const timer = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [status]);
+
+  // Poll for progress
   useEffect(() => {
     if (status === "completed" || status === "error") return;
 
     const interval = setInterval(async () => {
       const result = await getComplianceReport(checkId);
       if (result.check) {
-        const newStatus = (result.check as { status: string }).status;
-        setStatus(newStatus);
+        const c = result.check as {
+          status: string;
+          progress_current?: string | null;
+          progress_completed?: string[] | null;
+        };
 
-        if (newStatus === "completed") {
+        setStatus(c.status);
+        setProgressCurrent(c.progress_current ?? null);
+        setProgressCompleted(c.progress_completed ?? []);
+
+        if (c.status === "completed") {
           clearInterval(interval);
           router.refresh();
-        } else if (newStatus === "error") {
+        } else if (c.status === "error") {
           clearInterval(interval);
         }
       }
@@ -36,58 +71,136 @@ export function CheckProgress({ checkId, initialStatus }: CheckProgressProps) {
     return () => clearInterval(interval);
   }, [checkId, status, router]);
 
+  const formatElapsed = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  };
+
+  if (status === "completed") {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Compliance Check Progress</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-3">
+            <CheckCircle className="h-5 w-5 text-green-600" />
+            <div>
+              <p className="text-sm font-medium">Complete</p>
+              <p className="text-xs text-muted-foreground">
+                Your compliance report is ready.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Compliance Check Progress</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-3">
+            <XCircle className="h-5 w-5 text-red-600" />
+            <div>
+              <p className="text-sm font-medium">Error</p>
+              <p className="text-xs text-muted-foreground">
+                Something went wrong. Please try again.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const completedCount = progressCompleted.length;
+  const isProcessing = status === "processing";
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-lg">Compliance Check Progress</CardTitle>
       </CardHeader>
-      <CardContent>
-        <div className="flex items-center gap-3">
-          {status === "queued" && (
-            <>
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              <div>
-                <p className="text-sm font-medium">Queued</p>
-                <p className="text-xs text-muted-foreground">
-                  Your compliance check is in the queue and will start shortly.
-                </p>
-              </div>
-            </>
-          )}
-          {status === "processing" && (
-            <>
-              <Loader2 className="h-5 w-5 animate-spin text-primary" />
-              <div>
-                <p className="text-sm font-medium">Analysing...</p>
-                <p className="text-xs text-muted-foreground">
-                  AI is reviewing your plan against NCC requirements. This typically takes 1-2 minutes.
-                </p>
-              </div>
-            </>
-          )}
-          {status === "completed" && (
-            <>
-              <CheckCircle className="h-5 w-5 text-green-600" />
-              <div>
-                <p className="text-sm font-medium">Complete</p>
-                <p className="text-xs text-muted-foreground">
-                  Your compliance report is ready.
-                </p>
-              </div>
-            </>
-          )}
-          {status === "error" && (
-            <>
-              <XCircle className="h-5 w-5 text-red-600" />
-              <div>
-                <p className="text-sm font-medium">Error</p>
-                <p className="text-xs text-muted-foreground">
-                  Something went wrong. Please try again.
-                </p>
-              </div>
-            </>
-          )}
+      <CardContent className="space-y-4">
+        {/* Status + elapsed */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            <span className="text-sm font-medium">
+              {status === "queued" ? "Queued..." : "Analysing your plan"}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Clock className="h-3.5 w-3.5" />
+            {formatElapsed(elapsed)}
+          </div>
         </div>
+
+        {/* Progress bar */}
+        {isProcessing && completedCount > 0 && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>
+                {completedCount} domain{completedCount !== 1 ? "s" : ""} completed
+              </span>
+              {progressCurrent && <span>Analysing next...</span>}
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-primary transition-all duration-500"
+                style={{
+                  width: `${Math.max(
+                    5,
+                    (completedCount / (completedCount + (progressCurrent ? 1 : 0) + 1)) * 100
+                  )}%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Domain checklist */}
+        {isProcessing && (completedCount > 0 || progressCurrent) && (
+          <div className="space-y-1">
+            {progressCompleted.map((cat) => (
+              <div key={cat} className="flex items-center gap-2 py-0.5">
+                <CheckCircle className="h-4 w-4 text-green-600 shrink-0" />
+                <span className="text-sm text-foreground">
+                  {getCategoryLabel(cat)}
+                </span>
+              </div>
+            ))}
+            {progressCurrent && (
+              <div className="flex items-center gap-2 py-0.5">
+                <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
+                <span className="text-sm font-medium text-primary">
+                  {getCategoryLabel(progressCurrent)}
+                </span>
+                <span className="text-xs text-muted-foreground">Analysing...</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Queued state message */}
+        {status === "queued" && (
+          <p className="text-xs text-muted-foreground">
+            Your compliance check is in the queue and will start shortly.
+          </p>
+        )}
+
+        {/* Processing but no progress yet */}
+        {isProcessing && completedCount === 0 && !progressCurrent && (
+          <p className="text-xs text-muted-foreground">
+            Preparing analysis pipeline...
+          </p>
+        )}
       </CardContent>
     </Card>
   );

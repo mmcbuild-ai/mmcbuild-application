@@ -249,6 +249,7 @@ export const runComplianceCheck = inngest.createFunction(
           summary: summary.summary,
           overall_risk: summary.overall_risk,
           completed_at: new Date().toISOString(),
+          progress_current: null,
         } as never)
         .eq("id", check.id);
     });
@@ -274,6 +275,17 @@ async function runStandardPipeline(
   const results: AnalysisStepResult[] = [];
 
   for (const category of categories) {
+    const completedSoFar = results.map((r) => r.result.category);
+
+    // Report progress before starting this domain
+    await step.run(`progress-${category}`, async () => {
+      const admin = createAdminClient();
+      await admin.from("compliance_checks").update({
+        progress_current: category,
+        progress_completed: completedSoFar,
+      } as never).eq("id", check.id);
+    });
+
     const stepResult = await step.run(`analyse-${category}`, async () => {
       const nccRetrieval = await enhancedRetrieve({
         orgId: check.org_id,
@@ -360,6 +372,15 @@ async function runAgenticPipeline(
   for (let phaseIdx = 0; phaseIdx < phases.length; phaseIdx++) {
     const phaseCategories = phases[phaseIdx];
 
+    // Report progress: show first category in phase as current
+    await step.run(`progress-phase-${phaseIdx}-start`, async () => {
+      const admin = createAdminClient();
+      await admin.from("compliance_checks").update({
+        progress_current: phaseCategories[0],
+        progress_completed: [...resultMap.keys()],
+      } as never).eq("id", check.id);
+    });
+
     const phaseResults = await step.run(
       `agent-phase-${phaseIdx}`,
       async () => {
@@ -429,6 +450,16 @@ async function runAgenticPipeline(
         return results;
       }
     );
+
+    // Report progress after phase completes
+    const completedSoFar = [...resultMap.keys(), ...phaseCategories];
+    await step.run(`progress-phase-${phaseIdx}`, async () => {
+      const admin = createAdminClient();
+      await admin.from("compliance_checks").update({
+        progress_current: null,
+        progress_completed: completedSoFar,
+      } as never).eq("id", check.id);
+    });
 
     // Store phase results for next phase's cross-category access
     for (const pr of phaseResults) {

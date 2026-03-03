@@ -19,13 +19,15 @@ export default async function CheckPage({
     redirect(`/comply/${projectId}`);
   }
 
-  const check = result.check as {
+  const check = result.check as unknown as {
     id: string;
     project_id: string;
     status: string;
     summary: string | null;
     overall_risk: "low" | "medium" | "high" | "critical" | null;
     completed_at: string | null;
+    progress_current: string | null;
+    progress_completed: string[] | null;
   };
 
   const findings = (result.findings ?? []) as unknown as {
@@ -88,6 +90,8 @@ export default async function CheckPage({
         <CheckProgress
           checkId={checkId}
           initialStatus={check.status}
+          initialProgressCurrent={check.progress_current}
+          initialProgressCompleted={check.progress_completed ?? []}
         />
       )}
     </div>
