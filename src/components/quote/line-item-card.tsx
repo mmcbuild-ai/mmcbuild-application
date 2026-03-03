@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Info } from "lucide-react";
 import { getCostCategoryLabel } from "@/lib/ai/types";
 
 interface LineItemCardProps {
@@ -20,6 +20,8 @@ interface LineItemCardProps {
     savings_pct: number | null;
     source: string;
     confidence: number;
+    rate_source_name: string | null;
+    rate_source_detail: string | null;
   };
 }
 
@@ -27,6 +29,9 @@ export function LineItemCard({ item }: LineItemCardProps) {
   const [expanded, setExpanded] = useState(false);
   const hasMmc = item.mmc_total != null && item.mmc_total > 0;
   const savings = item.savings_pct ?? 0;
+
+  const isDbSourced = item.source === "reference" || (item.rate_source_name && item.rate_source_name !== "AI Estimated");
+  const sourceBadgeLabel = item.rate_source_name ?? (item.source === "reference" ? "Reference" : "AI Estimated");
 
   return (
     <Card className="border-l-4 border-l-violet-500">
@@ -42,12 +47,13 @@ export function LineItemCard({ item }: LineItemCardProps) {
               </span>
               <span
                 className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                  item.source === "reference"
+                  isDbSourced
                     ? "bg-green-100 text-green-700"
-                    : "bg-gray-100 text-gray-700"
+                    : "bg-amber-100 text-amber-700"
                 }`}
+                title={item.rate_source_detail ?? undefined}
               >
-                {item.source === "reference" ? "Reference" : "AI Estimated"}
+                {sourceBadgeLabel}
               </span>
             </div>
             <CardTitle className="text-sm font-medium">
@@ -111,6 +117,16 @@ export function LineItemCard({ item }: LineItemCardProps) {
               </p>
             </div>
           </div>
+
+          {/* Source provenance */}
+          {item.rate_source_detail && (
+            <div className="flex items-start gap-2 rounded-md border bg-gray-50 p-2">
+              <Info className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium">Source:</span> {item.rate_source_detail}
+              </p>
+            </div>
+          )}
 
           {/* MMC alternative */}
           {hasMmc && (

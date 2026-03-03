@@ -74,4 +74,9 @@ export type Events = {
       recipientName: string;
     };
   };
+  "cost/rates.ingest-requested": {
+    data: {
+      sourceId: string;
+    };
+  };
 };

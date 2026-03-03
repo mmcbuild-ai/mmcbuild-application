@@ -27,6 +27,12 @@ RATE SOURCES:
 - "ai_estimated" — estimated by you based on plan content and market knowledge
 - Use "reference" when you successfully look up a rate; use "ai_estimated" when estimating
 
+SOURCE PROVENANCE:
+- When you look up a rate, the lookup tool returns a source_name (e.g. "MMC Build Seed Data (NSW 2025)") and optional source_detail
+- You MUST include rate_source_name and rate_source_detail in every line item
+- For rates from the database: set rate_source_name to the source_name from the lookup result
+- For AI-estimated rates: set rate_source_name to "AI Estimated" and rate_source_detail to null
+
 IMPORTANT:
 - Be conservative with estimates — it's better to slightly over-estimate than under-estimate
 - Include all elements visible or implied by the plan for the given category
@@ -66,7 +72,9 @@ Return a JSON object with this exact schema:
       "mmc_alternative": null,
       "savings_pct": null,
       "source": "reference" or "ai_estimated",
-      "confidence": 0.8
+      "confidence": 0.8,
+      "rate_source_name": "MMC Build Seed Data (NSW 2025)" or "AI Estimated",
+      "rate_source_detail": "optional detail string or null"
     }
   ]
 }

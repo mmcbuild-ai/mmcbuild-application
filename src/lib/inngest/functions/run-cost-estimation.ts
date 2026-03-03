@@ -230,6 +230,8 @@ export const runCostEstimation = inngest.createFunction(
             savings_pct: li.savings_pct,
             source: li.source,
             confidence: li.confidence,
+            rate_source_name: li.rate_source_name ?? null,
+            rate_source_detail: li.rate_source_detail ?? null,
             sort_order: sortOrder++,
           });
         }

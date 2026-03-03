@@ -17,6 +17,8 @@ interface LineItem {
   source: string;
   confidence: number;
   sort_order: number;
+  rate_source_name: string | null;
+  rate_source_detail: string | null;
 }
 
 interface CostReportProps {
@@ -39,6 +41,14 @@ export function CostReport({ estimate, lineItems }: CostReportProps) {
   const totalMmc = estimate.total_mmc ?? 0;
   const savingsPct = estimate.total_savings_pct ?? 0;
   const totalSavings = totalTraditional - totalMmc;
+
+  // Aggregate data sources
+  const sourceCountMap = new Map<string, number>();
+  for (const li of lineItems) {
+    const name = li.rate_source_name ?? (li.source === "reference" ? "Reference" : "AI Estimated");
+    sourceCountMap.set(name, (sourceCountMap.get(name) ?? 0) + 1);
+  }
+  const sourceCounts = [...sourceCountMap.entries()].sort((a, b) => b[1] - a[1]);
 
   return (
     <div className="space-y-6">
@@ -75,6 +85,40 @@ export function CostReport({ estimate, lineItems }: CostReportProps) {
           </h3>
           <div className="text-sm text-violet-800 whitespace-pre-line">
             {estimate.summary}
+          </div>
+        </div>
+      )}
+
+      {/* Data Sources summary */}
+      {sourceCounts.length > 0 && (
+        <div className="rounded-lg border bg-white p-4">
+          <h3 className="text-sm font-semibold text-muted-foreground mb-3">
+            Data Sources
+          </h3>
+          <div className="flex flex-wrap gap-3">
+            {sourceCounts.map(([name, count]) => {
+              const isDb = name !== "AI Estimated";
+              return (
+                <div
+                  key={name}
+                  className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium ${
+                    isDb
+                      ? "bg-green-50 text-green-700 border border-green-200"
+                      : "bg-amber-50 text-amber-700 border border-amber-200"
+                  }`}
+                >
+                  <span
+                    className={`h-2 w-2 rounded-full ${
+                      isDb ? "bg-green-500" : "bg-amber-500"
+                    }`}
+                  />
+                  {name}
+                  <span className="text-muted-foreground">
+                    ({count} item{count !== 1 ? "s" : ""})
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

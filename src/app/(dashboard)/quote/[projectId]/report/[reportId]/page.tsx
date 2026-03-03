@@ -44,6 +44,8 @@ export default async function CostReportPage({
     source: string;
     confidence: number;
     sort_order: number;
+    rate_source_name: string | null;
+    rate_source_detail: string | null;
   }[];
 
   return (

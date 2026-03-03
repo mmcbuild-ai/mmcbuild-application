@@ -244,6 +244,8 @@ export interface CostLineItem {
   savings_pct: number | null;
   source: CostLineSource;
   confidence: number;
+  rate_source_name: string | null;
+  rate_source_detail: string | null;
 }
 
 export interface CostCategoryResult {
