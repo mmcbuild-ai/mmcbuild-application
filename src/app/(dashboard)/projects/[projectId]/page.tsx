@@ -15,6 +15,7 @@ import { SiteIntelCard } from "@/components/projects/site-intel-card";
 import { EditProjectDialog } from "@/components/projects/edit-project-dialog";
 import { DeleteProjectButton } from "@/components/projects/delete-project-button";
 import { ProjectTabs, type ProjectTab } from "@/components/projects/project-tabs";
+import { ProjectSetupBanner } from "@/components/projects/project-setup-banner";
 import { DocumentsTab } from "@/components/projects/documents-tab";
 import { ProjectContributors } from "@/components/projects/project-contributors";
 import { QuestionnaireForm } from "@/components/projects/questionnaire-form";
@@ -41,7 +42,6 @@ export default async function ProjectOverviewPage({
 }) {
   const { projectId } = await params;
   const sp = await searchParams;
-  const tab = (sp.tab as ProjectTab) || "overview";
   const supabase = await createClient();
 
   const { data: project } = await supabase
@@ -52,6 +52,27 @@ export default async function ProjectOverviewPage({
 
   if (!project) {
     redirect("/projects");
+  }
+
+  const isDraft = project.status === "draft";
+  // Default draft projects to documents tab when no tab specified
+  const tab = (sp.tab as ProjectTab) || (isDraft ? "documents" : "overview");
+
+  // For draft projects, always fetch readiness data for the banner
+  let readiness: { hasPlans: boolean; hasQuestionnaire: boolean; hasCertifications: boolean; hasTeam: boolean } | null = null;
+  if (isDraft) {
+    const [draftPlans, draftQuestionnaire, draftCerts, draftContributors] = await Promise.all([
+      getProjectPlans(projectId),
+      getProjectQuestionnaire(projectId),
+      getProjectCertifications(projectId),
+      getProjectContributors(projectId),
+    ]);
+    readiness = {
+      hasPlans: draftPlans.some((p: { status: string }) => p.status === "ready"),
+      hasQuestionnaire: !!draftQuestionnaire?.completed,
+      hasCertifications: draftCerts.length > 0,
+      hasTeam: draftContributors.length > 0,
+    };
   }
 
   // Conditionally fetch data based on active tab
@@ -124,8 +145,21 @@ export default async function ProjectOverviewPage({
         </div>
       </div>
 
+      {isDraft && readiness && (
+        <ProjectSetupBanner
+          projectId={projectId}
+          hasPlans={readiness.hasPlans}
+          hasQuestionnaire={readiness.hasQuestionnaire}
+          hasCertifications={readiness.hasCertifications}
+          hasTeam={readiness.hasTeam}
+        />
+      )}
+
       <Suspense fallback={null}>
-        <ProjectTabs projectId={projectId} />
+        <ProjectTabs
+          projectId={projectId}
+          readiness={isDraft && readiness ? { hasPlans: readiness.hasPlans, hasQuestionnaire: readiness.hasQuestionnaire } : undefined}
+        />
       </Suspense>
 
       {/* Overview tab */}

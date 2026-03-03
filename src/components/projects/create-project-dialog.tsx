@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -20,6 +21,7 @@ export function CreateProjectDialog() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const geocodedRef = useRef<GeocodedAddress | null>(null);
+  const router = useRouter();
 
   function handleAddressSelect(address: GeocodedAddress) {
     geocodedRef.current = address;
@@ -39,9 +41,10 @@ export function CreateProjectDialog() {
 
     setLoading(true);
     try {
-      await createProject(formData);
+      const { projectId } = await createProject(formData);
       setOpen(false);
       geocodedRef.current = null;
+      router.push(`/projects/${projectId}?tab=documents`);
     } finally {
       setLoading(false);
     }

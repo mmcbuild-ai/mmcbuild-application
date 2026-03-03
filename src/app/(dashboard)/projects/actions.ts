@@ -90,6 +90,64 @@ export async function createProject(formData: FormData) {
   }
 
   revalidatePath("/projects");
+  return { projectId: project.id };
+}
+
+export async function activateProject(projectId: string) {
+  const profile = await getProfile();
+  const admin = createAdminClient();
+
+  // Verify project belongs to org and is draft
+  const { data: project } = await admin
+    .from("projects")
+    .select("org_id, status")
+    .eq("id", projectId)
+    .single();
+
+  if (!project || project.org_id !== profile.org_id) {
+    return { error: "Project not found" };
+  }
+
+  if (project.status !== "draft") {
+    return { error: "Project is already active" };
+  }
+
+  // Check readiness: at least one plan with status "ready"
+  const { data: readyPlans } = await admin
+    .from("plans")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("status", "ready")
+    .limit(1);
+
+  if (!readyPlans || readyPlans.length === 0) {
+    return { error: "At least one processed plan is required before activation" };
+  }
+
+  // Check readiness: questionnaire completed
+  const { data: questionnaire } = await admin
+    .from("questionnaire_responses")
+    .select("completed")
+    .eq("project_id", projectId)
+    .limit(1)
+    .single();
+
+  if (!questionnaire?.completed) {
+    return { error: "Questionnaire must be completed before activation" };
+  }
+
+  // Activate
+  const { error } = await admin
+    .from("projects")
+    .update({ status: "active", updated_at: new Date().toISOString() } as never)
+    .eq("id", projectId);
+
+  if (error) return { error: `Failed to activate project: ${error.message}` };
+
+  revalidatePath("/projects");
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath("/comply");
+  return { success: true };
 }
 
 export async function getProjectSiteIntel(projectId: string) {

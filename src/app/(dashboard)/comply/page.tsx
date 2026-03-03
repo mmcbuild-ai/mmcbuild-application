@@ -39,34 +39,43 @@ export default async function ComplyPage() {
       <div className="space-y-6">
         {projects && projects.length > 0 ? (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {projects.map((project) => (
-              <Link
-                key={project.id}
-                href={`/comply/${project.id}`}
-              >
-                <Card className="hover:shadow-md transition-shadow cursor-pointer">
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-lg">{project.name}</CardTitle>
-                      <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <CardDescription>
-                      {project.address ?? "No address"}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-center justify-between">
-                      <Badge variant="secondary" className="capitalize">
-                        {project.status}
-                      </Badge>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(project.created_at).toLocaleDateString("en-AU")}
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            ))}
+            {projects.map((project) => {
+              const isDraft = project.status === "draft";
+              return (
+                <Link
+                  key={project.id}
+                  href={isDraft ? `/projects/${project.id}` : `/comply/${project.id}`}
+                >
+                  <Card className={`transition-shadow cursor-pointer ${isDraft ? "opacity-60" : "hover:shadow-md"}`}>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-lg">{project.name}</CardTitle>
+                        <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                      <CardDescription>
+                        {project.address ?? "No address"}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex items-center justify-between">
+                        {isDraft ? (
+                          <Badge variant="outline" className="border-amber-500 text-amber-600">
+                            Setup required
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="capitalize">
+                            {project.status}
+                          </Badge>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(project.created_at).toLocaleDateString("en-AU")}
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </Link>
+              );
+            })}
           </div>
         ) : (
           <Card className="flex flex-col items-center justify-center py-12">

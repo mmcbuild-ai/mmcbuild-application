@@ -40,12 +40,48 @@ export default async function ProjectComplyPage({
 
   const { data: project } = await supabase
     .from("projects")
-    .select("id, name, address")
+    .select("id, name, address, status")
     .eq("id", projectId)
     .single();
 
   if (!project) {
     redirect("/comply");
+  }
+
+  // Gate: only active projects can use Comply
+  if (project.status !== "active") {
+    return (
+      <div className="space-y-6">
+        <div>
+          <Link
+            href="/comply"
+            className="text-sm text-muted-foreground hover:underline"
+          >
+            &larr; Back to Comply
+          </Link>
+          <h1 className="mt-2 text-2xl font-bold">{project.name}</h1>
+          <p className="text-muted-foreground">
+            {project.address ?? "No address"}
+          </p>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Setup Required</CardTitle>
+            <CardDescription>
+              Complete project setup before running compliance checks.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="mb-4 text-sm text-muted-foreground">
+              Your project needs plans uploaded and the questionnaire completed before you can use MMC Comply.
+            </p>
+            <Button asChild>
+              <Link href={`/projects/${projectId}`}>Complete Project Setup</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   const { data: { user } } = await supabase.auth.getUser();
