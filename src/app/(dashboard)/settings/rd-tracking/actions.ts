@@ -549,3 +549,210 @@ export async function getAutoTrackingStats() {
     approvalRate,
   };
 }
+
+// ============================================================
+// Deployment Sync — pull commits from GitHub and backfill R&D entries
+// Each deployment (push to main) = 2 hours of R&D time
+// ============================================================
+
+interface GitHubCommit {
+  sha: string;
+  commit: {
+    message: string;
+    author: { name: string; email: string; date: string };
+  };
+  author?: { login: string } | null;
+  files?: { filename: string; status: string }[];
+}
+
+/**
+ * Map a commit message to a likely R&D stage + deliverable based on keywords.
+ */
+function classifyCommitByMessage(message: string): {
+  stage: string;
+  deliverable: string;
+  rd_tag: "core_rd" | "rd_supporting" | "not_eligible";
+} {
+  const msg = message.toLowerCase();
+
+  // Stage/module detection
+  if (msg.includes("comply") || msg.includes("compliance") || msg.includes("ncc")) {
+    return { stage: "stage_1", deliverable: "ai_compliance_engine", rd_tag: "core_rd" };
+  }
+  if (msg.includes("rag") || msg.includes("embedding") || msg.includes("knowledge")) {
+    return { stage: "stage_1", deliverable: "rag_pipeline", rd_tag: "core_rd" };
+  }
+  if (msg.includes("design optim") || msg.includes("mmc build")) {
+    return { stage: "stage_2", deliverable: "design_optimisation", rd_tag: "core_rd" };
+  }
+  if (msg.includes("cost") || msg.includes("quote") || msg.includes("estimat")) {
+    return { stage: "stage_3", deliverable: "cost_estimation", rd_tag: "core_rd" };
+  }
+  if (msg.includes("direct") || msg.includes("trade") || msg.includes("directory")) {
+    return { stage: "stage_4", deliverable: "trade_matching", rd_tag: "core_rd" };
+  }
+  if (msg.includes("train") || msg.includes("lms") || msg.includes("course")) {
+    return { stage: "stage_5", deliverable: "training_content_ai", rd_tag: "core_rd" };
+  }
+  if (msg.includes("billing") || msg.includes("stripe") || msg.includes("subscription")) {
+    return { stage: "stage_6", deliverable: "other", rd_tag: "rd_supporting" };
+  }
+  if (msg.includes("ai") || msg.includes("model") || msg.includes("claude") || msg.includes("inngest")) {
+    return { stage: "stage_1", deliverable: "ai_compliance_engine", rd_tag: "core_rd" };
+  }
+  if (msg.includes("migration") || msg.includes("schema") || msg.includes("supabase")) {
+    return { stage: "stage_0", deliverable: "database_schema", rd_tag: "rd_supporting" };
+  }
+  if (msg.includes("auth") || msg.includes("role") || msg.includes("rls")) {
+    return { stage: "stage_0", deliverable: "auth_rbac", rd_tag: "rd_supporting" };
+  }
+  if (msg.includes("fix") || msg.includes("bug")) {
+    return { stage: "stage_0", deliverable: "testing_qa", rd_tag: "rd_supporting" };
+  }
+
+  return { stage: "stage_0", deliverable: "other", rd_tag: "rd_supporting" };
+}
+
+export async function syncDeployments() {
+  const profile = await getProfile();
+  if (!["owner", "admin"].includes(profile.role)) {
+    throw new Error("Admin access required");
+  }
+
+  const admin = createAdminClient();
+
+  // Get config
+  const { data: config } = await admin
+    .from("rd_tracking_config")
+    .select("*")
+    .eq("org_id", profile.org_id)
+    .single();
+
+  if (!config) throw new Error("R&D tracking not configured");
+
+  const repo = config.github_repo;
+  if (!repo) throw new Error("GitHub repo not set in config");
+
+  const hoursPerDeployment = Number(config.default_hours_per_commit) || 2.0;
+
+  // Fetch commits from GitHub API (public repo, no auth needed)
+  const res = await fetch(
+    `https://api.github.com/repos/${repo}/commits?sha=main&per_page=100`,
+    {
+      headers: {
+        Accept: "application/vnd.github.v3+json",
+        "User-Agent": "MMCBuild-RD-Tracker",
+      },
+    }
+  );
+
+  if (!res.ok) {
+    throw new Error(`GitHub API error: ${res.status} ${res.statusText}`);
+  }
+
+  const commits: GitHubCommit[] = await res.json();
+
+  // Get existing SHAs to avoid duplicates
+  const { data: existingLogs } = await admin
+    .from("rd_commit_logs")
+    .select("sha")
+    .eq("org_id", profile.org_id);
+
+  const existingShas = new Set(
+    ((existingLogs ?? []) as { sha: string }[]).map((l) => l.sha)
+  );
+
+  let synced = 0;
+  let skipped = 0;
+
+  for (const commit of commits) {
+    if (existingShas.has(commit.sha)) {
+      skipped++;
+      continue;
+    }
+
+    const classification = classifyCommitByMessage(commit.commit.message);
+    const committedAt = commit.commit.author.date;
+    const date = committedAt.split("T")[0];
+
+    // Insert commit log
+    const { data: commitLog, error: logError } = await admin
+      .from("rd_commit_logs")
+      .insert({
+        org_id: profile.org_id,
+        sha: commit.sha,
+        author_name: commit.commit.author.name,
+        author_email: commit.commit.author.email,
+        message: commit.commit.message.slice(0, 500),
+        files_changed: JSON.stringify(
+          (commit.files ?? []).map((f) => ({
+            path: f.filename,
+            action: f.status,
+          }))
+        ),
+        repo,
+        branch: "main",
+        committed_at: committedAt,
+        status: "classified",
+      } as never)
+      .select("id")
+      .single();
+
+    if (logError || !commitLog) {
+      console.error(`[RD Sync] Failed to insert commit ${commit.sha}:`, logError);
+      continue;
+    }
+
+    const commitLogId = (commitLog as { id: string }).id;
+
+    // Insert auto entry with 2h per deployment
+    const { data: autoEntry, error: entryError } = await admin
+      .from("rd_auto_entries")
+      .insert({
+        org_id: profile.org_id,
+        commit_id: commitLogId,
+        date,
+        hours: hoursPerDeployment,
+        stage: classification.stage,
+        deliverable: classification.deliverable,
+        rd_tag: classification.rd_tag,
+        description: `[${commit.sha.slice(0, 7)}] ${commit.commit.message.slice(0, 200)}`,
+        ai_reasoning: `Auto-classified from commit message keywords. Deployment-level tracking at ${hoursPerDeployment}h per deployment.`,
+        confidence: 0.75,
+        review_status: "approved",
+        reviewed_by: profile.id,
+        reviewed_at: new Date().toISOString(),
+      } as never)
+      .select("id")
+      .single();
+
+    if (entryError) {
+      console.error(`[RD Sync] Failed to insert auto entry for ${commit.sha}:`, entryError);
+      continue;
+    }
+
+    // Also insert into rd_time_entries (approved entries)
+    await admin.from("rd_time_entries").insert({
+      profile_id: profile.id,
+      org_id: profile.org_id,
+      date,
+      hours: hoursPerDeployment,
+      stage: classification.stage,
+      deliverable: classification.deliverable,
+      rd_tag: classification.rd_tag,
+      description: `[Auto] ${commit.sha.slice(0, 7)}: ${commit.commit.message.slice(0, 200)}`,
+    } as never);
+
+    synced++;
+  }
+
+  revalidatePath("/settings/rd-tracking");
+
+  return {
+    synced,
+    skipped,
+    total: commits.length,
+    hoursPerDeployment,
+    totalHoursAdded: synced * hoursPerDeployment,
+  };
+}

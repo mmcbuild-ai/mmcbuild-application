@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import {
   updateAutoTrackingConfig,
   generateWebhookSecret,
+  syncDeployments,
 } from "@/app/(dashboard)/settings/rd-tracking/actions";
 
 interface AutoTrackingConfigProps {
@@ -36,6 +37,8 @@ export function AutoTrackingConfig({
   const [secretVisible, setSecretVisible] = useState(false);
   const [secret, setSecret] = useState(config?.webhook_secret ?? "");
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
   async function handleSave() {
@@ -187,9 +190,36 @@ export function AutoTrackingConfig({
           </div>
         </div>
 
-        <Button onClick={handleSave} disabled={saving}>
-          {saving ? "Saving..." : "Save Configuration"}
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? "Saving..." : "Save Configuration"}
+          </Button>
+          <Button
+            variant="outline"
+            disabled={syncing || !repo}
+            onClick={async () => {
+              setSyncing(true);
+              setSyncResult(null);
+              try {
+                const result = await syncDeployments();
+                setSyncResult(
+                  `Synced ${result.synced} new entries (${result.skipped} already existed, ${result.totalHoursAdded}h added)`
+                );
+              } catch {
+                setSyncResult("Failed to sync deployments from GitHub");
+              } finally {
+                setSyncing(false);
+              }
+            }}
+          >
+            {syncing ? "Syncing..." : "Sync GitHub Deployments"}
+          </Button>
+        </div>
+        {syncResult && (
+          <p className="text-sm text-muted-foreground bg-muted rounded-md px-3 py-2">
+            {syncResult}
+          </p>
+        )}
       </CardContent>
     </Card>
   );
