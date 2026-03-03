@@ -1,4 +1,4 @@
-import { Settings, BookOpen, Clock, ArrowRight } from "lucide-react";
+import { Settings, BookOpen, Clock, ArrowRight, Users } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -30,6 +30,14 @@ const settingsCards = [
       "Log R&D hours by stage and deliverable for tax incentive claims.",
     icon: Clock,
     href: "/settings/rd-tracking",
+    disabled: false,
+  },
+  {
+    title: "Directory Admin",
+    description:
+      "Review and approve trade directory listings for MMC Direct.",
+    icon: Users,
+    href: "/settings/directory-admin",
     disabled: false,
   },
 ];

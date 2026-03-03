@@ -177,20 +177,23 @@ export default async function ProjectComplyPage({
         <CardContent>
           <div className="flex items-center gap-2 overflow-x-auto">
             {[
-              { label: "Comply", active: true, desc: "NCC compliance check" },
-              { label: "Build", active: false, desc: "Design optimisation" },
-              { label: "Quote", active: false, desc: "Cost estimation" },
-              { label: "Directory", active: false, desc: "Find trades" },
-              { label: "Train", active: false, desc: "Upskill your team" },
+              { label: "Comply", active: true, desc: "NCC compliance check", href: "/comply" },
+              { label: "Build", active: false, desc: "Design optimisation", href: "/build" },
+              { label: "Quote", active: false, desc: "Cost estimation", href: "/quote" },
+              { label: "Directory", active: false, desc: "Find trades", href: "/direct" },
+              { label: "Train", active: false, desc: "Upskill your team", href: "" },
             ].map((step, i) => (
               <div key={step.label} className="flex items-center gap-2">
                 {i > 0 && (
                   <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                 )}
-                <div
+                <a
+                  href={step.href || undefined}
                   className={`rounded-md border px-3 py-2 text-center min-w-[100px] ${
                     step.active
                       ? "border-primary bg-primary/10"
+                      : step.href
+                      ? "border-dashed opacity-70 hover:opacity-100 hover:border-solid transition-all"
                       : "border-dashed opacity-50"
                   }`}
                 >
@@ -202,9 +205,9 @@ export default async function ProjectComplyPage({
                     {step.label}
                   </p>
                   <p className="text-[10px] text-muted-foreground">
-                    {step.active ? step.desc : "Coming soon"}
+                    {step.active ? step.desc : step.href ? step.desc : "Coming soon"}
                   </p>
-                </div>
+                </a>
               </div>
             ))}
           </div>
