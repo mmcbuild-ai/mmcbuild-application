@@ -5,21 +5,17 @@ export interface ParsedPdf {
 }
 
 export async function parsePdf(buffer: Buffer): Promise<ParsedPdf> {
-  // Dynamic import to avoid loading @napi-rs/canvas at module registration time.
-  // pdf-parse v2 bundles native binaries that crash Vercel's serverless runtime
-  // if loaded eagerly (e.g. when the Inngest route registers all functions).
-  const { PDFParse } = await import("pdf-parse");
-  const parser = new PDFParse({ data: new Uint8Array(buffer) });
-  const text = await parser.getText();
-  const info = await parser.getInfo();
+  // pdf-parse v1 is pure JS — works on Vercel serverless without native binaries
+  const pdfParse = (await import("pdf-parse")).default;
+  const result = await pdfParse(buffer);
 
   return {
-    text: text.pages.map((p) => p.text).join("\n\n"),
-    pageCount: text.pages.length,
+    text: result.text,
+    pageCount: result.numpages,
     metadata: {
-      title: info.info?.Title ?? null,
-      author: info.info?.Author ?? null,
-      creator: info.info?.Creator ?? null,
+      title: result.info?.Title ?? null,
+      author: result.info?.Author ?? null,
+      creator: result.info?.Creator ?? null,
     },
   };
 }
