@@ -11,13 +11,10 @@ export const processPlan = inngest.createFunction(
       const admin = createAdminClient();
       const { projectId, fileName, uploadedBy, planId } = event.data.event.data;
 
-      // Try to find the plan and mark it as error
       if (planId) {
         await admin
           .from("plans")
-          .update({
-            status: "error",
-          } as never)
+          .update({ status: "error" } as never)
           .eq("id", planId);
       } else if (projectId && fileName && uploadedBy) {
         const { data: plan } = await admin
@@ -33,9 +30,7 @@ export const processPlan = inngest.createFunction(
         if (plan) {
           await admin
             .from("plans")
-            .update({
-              status: "error",
-            } as never)
+            .update({ status: "error" } as never)
             .eq("id", plan.id);
         }
       }
@@ -51,7 +46,6 @@ export const processPlan = inngest.createFunction(
     const plan = await step.run("find-plan-record", async () => {
       const admin = createAdminClient();
 
-      // Prefer direct ID lookup if available
       if (eventPlanId) {
         const { data, error } = await admin
           .from("plans")
@@ -65,7 +59,6 @@ export const processPlan = inngest.createFunction(
         return data as { id: string; org_id: string; file_path: string };
       }
 
-      // Fallback to composite lookup
       const { data, error } = await admin
         .from("plans")
         .select("id, org_id, file_path")
@@ -92,8 +85,9 @@ export const processPlan = inngest.createFunction(
         .eq("id", plan.id);
     });
 
-    // 3. Download PDF from storage
-    const pdfBuffer = await step.run("download-pdf", async () => {
+    // 3. Download, parse, chunk, and embed in a single step
+    //    (avoids passing large PDF buffer between steps — Inngest has a 4MB step output limit)
+    const result = await step.run("download-and-ingest", async () => {
       const admin = createAdminClient();
       const { data, error } = await admin.storage
         .from("plan-uploads")
@@ -104,16 +98,12 @@ export const processPlan = inngest.createFunction(
       }
 
       const arrayBuffer = await data.arrayBuffer();
-      return Buffer.from(arrayBuffer).toString("base64");
-    });
+      const buffer = Buffer.from(arrayBuffer);
 
-    // 4. Parse, chunk, and embed
-    const result = await step.run("ingest-plan", async () => {
-      const buffer = Buffer.from(pdfBuffer, "base64");
       return await ingestPlan(plan.org_id, plan.id, buffer);
     });
 
-    // 5. Update status to ready
+    // 4. Update status to ready
     await step.run("update-status-ready", async () => {
       const admin = createAdminClient();
       await admin

@@ -1,6 +1,5 @@
 import { inngest } from "../client";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { ingestPlan } from "@/lib/comply/ingestion";
 
 export const processCertification = inngest.createFunction(
   {
@@ -50,8 +49,9 @@ export const processCertification = inngest.createFunction(
         .eq("id", cert.id);
     });
 
-    // 3. Download file from storage
-    const fileData = await step.run("download-file", async () => {
+    // 3. Download and process in a single step
+    //    (avoids passing large file buffer between steps — Inngest has a 4MB step output limit)
+    const processResult = await step.run("download-and-process", async () => {
       const admin = createAdminClient();
       const { data, error } = await admin.storage
         .from("engineering-certs")
@@ -61,21 +61,12 @@ export const processCertification = inngest.createFunction(
         throw new Error(`Failed to download file: ${error?.message}`);
       }
 
-      const arrayBuffer = await data.arrayBuffer();
-      return {
-        base64: Buffer.from(arrayBuffer).toString("base64"),
-        contentType: data.type,
-      };
-    });
+      const contentType = data.type;
+      const isPdf = contentType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
 
-    // 4. Process based on file type
-    const isPdf = fileData.contentType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
-
-    if (isPdf) {
-      // Parse PDF, chunk, and embed (reuse plan ingestion with "certification" source type)
-      await step.run("ingest-certification-pdf", async () => {
-        const buffer = Buffer.from(fileData.base64, "base64");
-        const admin = createAdminClient();
+      if (isPdf) {
+        const arrayBuffer = await data.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
 
         // Delete any existing embeddings for this certification
         await admin
@@ -84,8 +75,6 @@ export const processCertification = inngest.createFunction(
           .eq("source_type", "certification")
           .eq("source_id", cert.id);
 
-        // Use the same ingestion pipeline but with certification source type
-        // ingestPlan uses source_type "plan" internally, so we do it manually here
         const { parsePdf } = await import("@/lib/pdf/parser");
         const { chunkText } = await import("@/lib/pdf/chunker");
         const { generateEmbeddings } = await import("@/lib/ai/openai");
@@ -97,7 +86,7 @@ export const processCertification = inngest.createFunction(
         });
 
         if (chunks.length === 0) {
-          return { pageCount: parsed.pageCount, chunkCount: 0 };
+          return { type: "pdf" as const, pageCount: parsed.pageCount, chunkCount: 0 };
         }
 
         const embeddings = await generateEmbeddings(chunks.map((c) => c.content));
@@ -124,13 +113,9 @@ export const processCertification = inngest.createFunction(
           `[Certification] ${cert.id}: ${parsed.pageCount} pages, ${chunks.length} chunks embedded`
         );
 
-        return { pageCount: parsed.pageCount, chunkCount: chunks.length };
-      });
-    } else {
-      // Image file: store a single metadata chunk (no text extraction)
-      await step.run("store-image-metadata", async () => {
-        const admin = createAdminClient();
-
+        return { type: "pdf" as const, pageCount: parsed.pageCount, chunkCount: chunks.length };
+      } else {
+        // Image file: store a single metadata chunk (no text extraction)
         await admin
           .from("document_embeddings")
           .delete()
@@ -149,10 +134,12 @@ export const processCertification = inngest.createFunction(
             is_image: true,
           },
         } as never);
-      });
-    }
 
-    // 5. Update status to ready
+        return { type: "image" as const };
+      }
+    });
+
+    // 4. Update status to ready
     await step.run("update-status-ready", async () => {
       const admin = createAdminClient();
       await admin
@@ -164,7 +151,7 @@ export const processCertification = inngest.createFunction(
     return {
       certificationId: cert.id,
       type: cert.cert_type,
-      processed: isPdf ? "pdf" : "image",
+      processed: processResult.type,
     };
   }
 );
