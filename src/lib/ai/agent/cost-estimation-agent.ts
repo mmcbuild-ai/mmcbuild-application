@@ -128,7 +128,7 @@ ${categoryPrompt}`;
 
     // If no tool calls, the agent is done
     if (!response.toolCalls || response.toolCalls.length === 0) {
-      const result = extractJson<CostCategoryResult>(response.text);
+      const result = safeExtractResult(response.text, category);
       return { result, dependencies, iterations };
     }
 
@@ -171,8 +171,24 @@ ${categoryPrompt}`;
     checkId: agentContext.estimateId,
   });
 
-  const result = extractJson<CostCategoryResult>(lastAttempt.text);
+  const result = safeExtractResult(lastAttempt.text, category);
   return { result, dependencies, iterations };
+}
+
+/**
+ * Safely extract a CostCategoryResult from AI text.
+ * Falls back to an empty result if JSON extraction fails.
+ */
+function safeExtractResult(text: string, category: string): CostCategoryResult {
+  try {
+    return extractJson<CostCategoryResult>(text);
+  } catch (err) {
+    console.error(
+      `[CostAgent] Failed to extract JSON for "${category}": ${err instanceof Error ? err.message : err}`
+    );
+    // Return empty result rather than crashing the entire pipeline
+    return { category, line_items: [] };
+  }
 }
 
 async function executeCostToolCall(

@@ -29,6 +29,9 @@ export const runCostEstimation = inngest.createFunction(
   { event: "cost/estimation.requested" },
   async ({ event, step }) => {
     const { projectId, planId } = event.data;
+    let estimateId: string | null = null;
+
+    try {
 
     // 1. Load cost estimate record
     const estimate = await step.run("load-estimate", async () => {
@@ -48,6 +51,8 @@ export const runCostEstimation = inngest.createFunction(
 
       return data as { id: string; org_id: string; plan_id: string; region: string | null };
     });
+
+    estimateId = estimate.id;
 
     // 2. Update status to processing
     await step.run("update-processing", async () => {
@@ -312,5 +317,25 @@ export const runCostEstimation = inngest.createFunction(
       totalMmc: Math.round(finalMmc),
       savingsPct,
     };
+
+    } catch (err) {
+      // Ensure the estimate is marked as error so the UI stops polling
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[CostEstimation] Fatal error: ${errorMsg}`);
+
+      if (estimateId) {
+        await step.run("update-error-fatal", async () => {
+          await db()
+            .from("cost_estimates")
+            .update({
+              status: "error",
+              summary: `Cost estimation failed: ${errorMsg.slice(0, 500)}`,
+            })
+            .eq("id", estimateId);
+        });
+      }
+
+      throw err; // Re-throw so Inngest records the failure
+    }
   }
 );
