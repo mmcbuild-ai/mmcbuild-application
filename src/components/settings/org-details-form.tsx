@@ -9,6 +9,16 @@ import { updateOrganisation } from "@/app/(dashboard)/settings/organisation/acti
 import { useRouter } from "next/navigation";
 import { validateAbn, type AbnLookupResult } from "@/lib/abn";
 
+interface NameSearchResult {
+  abn: string;
+  name: string;
+  nameType: string;
+  state: string;
+  postcode: string;
+  score: number;
+  isCurrent: boolean;
+}
+
 interface OrgDetailsFormProps {
   orgName: string;
   orgAbn: string | null;
@@ -28,26 +38,32 @@ export function OrgDetailsForm({
   const [abnLoading, setAbnLoading] = useState(false);
   const [abnResult, setAbnResult] = useState<AbnLookupResult | null>(null);
   const [abnError, setAbnError] = useState<string | null>(null);
+  const [nameResults, setNameResults] = useState<NameSearchResult[]>([]);
+  const [showDropdown, setShowDropdown] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abnInputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Cleanup debounce on unmount
+  // Close dropdown on outside click
   useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target as Node) &&
+        abnInputRef.current &&
+        !abnInputRef.current.contains(e.target as Node)
+      ) {
+        setShowDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
     return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, []);
 
-  const lookupAbn = useCallback(async (rawValue: string) => {
-    const digits = rawValue.replace(/\s/g, "");
-    setAbnResult(null);
-    setAbnError(null);
-
-    // Only look up when we have exactly 11 digits
-    if (digits.length !== 11) {
-      setAbnLoading(false);
-      return;
-    }
-
+  const lookupAbn = useCallback(async (digits: string) => {
     const validationError = validateAbn(digits);
     if (validationError) {
       setAbnError(validationError);
@@ -71,11 +87,73 @@ export function OrgDetailsForm({
     }
   }, []);
 
+  const searchByName = useCallback(async (query: string) => {
+    setAbnLoading(true);
+    try {
+      const res = await fetch(`/api/abn-lookup?name=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      if (!res.ok) {
+        setAbnError(data.error || "Search failed");
+        setNameResults([]);
+      } else {
+        setNameResults(data.results || []);
+        setShowDropdown((data.results || []).length > 0);
+      }
+    } catch {
+      setAbnError("Name search failed");
+    } finally {
+      setAbnLoading(false);
+    }
+  }, []);
+
   const handleAbnChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const value = e.target.value;
       if (debounceRef.current) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => lookupAbn(value), 600);
+
+      setAbnResult(null);
+      setAbnError(null);
+      setNameResults([]);
+      setShowDropdown(false);
+
+      const digits = value.replace(/\s/g, "");
+
+      // If it looks like an ABN (11 digits), do ABN lookup
+      if (/^\d{11}$/.test(digits)) {
+        debounceRef.current = setTimeout(() => lookupAbn(digits), 400);
+        return;
+      }
+
+      // If it has 2+ non-digit chars, treat as name search
+      const nonDigitChars = value.replace(/[\d\s]/g, "");
+      if (nonDigitChars.length >= 2 && value.trim().length >= 2) {
+        debounceRef.current = setTimeout(() => searchByName(value.trim()), 400);
+        return;
+      }
+
+      setAbnLoading(false);
+    },
+    [lookupAbn, searchByName]
+  );
+
+  const handleSelectCompany = useCallback(
+    async (result: NameSearchResult) => {
+      setShowDropdown(false);
+      setNameResults([]);
+
+      // Set the ABN in the input
+      if (abnInputRef.current) {
+        // Format as "XX XXX XXX XXX"
+        const raw = result.abn.replace(/\s/g, "");
+        const formatted = raw.replace(/(\d{2})(\d{3})(\d{3})(\d{3})/, "$1 $2 $3 $4");
+        abnInputRef.current.value = formatted;
+      }
+
+      // Fetch full details
+      const digits = result.abn.replace(/\s/g, "");
+      if (/^\d{11}$/.test(digits)) {
+        await lookupAbn(digits);
+      }
     },
     [lookupAbn]
   );
@@ -118,14 +196,46 @@ export function OrgDetailsForm({
           </div>
           <div className="space-y-2">
             <Label htmlFor="abn">ABN</Label>
-            <Input
-              id="abn"
-              name="abn"
-              defaultValue={orgAbn ?? ""}
-              disabled={!canEdit}
-              placeholder="e.g. 99 691 530 426"
-              onChange={handleAbnChange}
-            />
+            <p className="text-xs text-muted-foreground">
+              Type a company name to search, or paste an 11-digit ABN
+            </p>
+            <div className="relative">
+              <Input
+                ref={abnInputRef}
+                id="abn"
+                name="abn"
+                defaultValue={orgAbn ?? ""}
+                disabled={!canEdit}
+                placeholder="e.g. 99 691 530 426 or company name"
+                onChange={handleAbnChange}
+                autoComplete="off"
+              />
+              {showDropdown && nameResults.length > 0 && (
+                <div
+                  ref={dropdownRef}
+                  className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-lg max-h-64 overflow-y-auto"
+                >
+                  {nameResults.map((r, i) => (
+                    <button
+                      key={`${r.abn}-${i}`}
+                      type="button"
+                      className="w-full px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground border-b last:border-b-0 transition-colors"
+                      onClick={() => handleSelectCompany(r)}
+                    >
+                      <span className="font-medium">{r.name}</span>
+                      <span className="ml-2 text-muted-foreground">
+                        ABN {r.abn}
+                        {r.state ? ` · ${r.state}` : ""}
+                        {r.postcode ? ` ${r.postcode}` : ""}
+                      </span>
+                      {!r.isCurrent && (
+                        <span className="ml-2 text-xs text-orange-500">(historical)</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             {abnLoading && (
               <p className="text-sm text-muted-foreground">Looking up ABN...</p>
             )}
