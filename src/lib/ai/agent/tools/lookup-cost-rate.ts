@@ -1,8 +1,8 @@
 /**
  * Agent Tool: lookup_cost_rate
  * Looks up reference cost rates from the cost_reference_rates table.
+ * Checks org-specific overrides first, then falls back to global rates.
  * Returns source provenance information alongside rate data.
- * Gracefully falls back if migration 00019 (provenance columns) has not been applied.
  */
 
 import { db } from "@/lib/supabase/db";
@@ -33,6 +33,61 @@ export const lookupCostRateDef = {
   },
 };
 
+interface RateResult {
+  element: string;
+  unit: string;
+  base_rate: number;
+  state: string;
+  year: number;
+  source_name: string;
+  source_detail: string | null;
+  is_override: boolean;
+}
+
+/**
+ * Query org-specific rate overrides first.
+ */
+async function queryOrgOverrides(
+  orgId: string,
+  category: string,
+  state: string,
+  element?: string
+): Promise<RateResult[]> {
+  let query = db()
+    .from("org_rate_overrides")
+    .select("element, unit, base_rate, state, year, notes, source_label")
+    .eq("org_id", orgId)
+    .eq("category", category)
+    .eq("state", state);
+
+  if (element) {
+    query = query.ilike("element", `%${element}%`);
+  }
+
+  const { data, error } = await query;
+
+  if (error || !data) return [];
+
+  return (data as {
+    element: string;
+    unit: string;
+    base_rate: number;
+    state: string;
+    year: number;
+    notes: string | null;
+    source_label: string;
+  }[]).map((r) => ({
+    element: r.element,
+    unit: r.unit,
+    base_rate: r.base_rate,
+    state: r.state,
+    year: r.year,
+    source_name: r.source_label,
+    source_detail: r.notes,
+    is_override: true,
+  }));
+}
+
 interface RateRowLegacy {
   element: string;
   unit: string;
@@ -54,25 +109,14 @@ function hasProvenance(row: RateRow): row is RateRowEnhanced {
   return "cost_rate_sources" in row;
 }
 
-function formatRateLine(r: RateRow, suffix?: string): string {
-  const base = `  - ${r.element}: $${r.base_rate}/${r.unit} (${r.state} ${r.year}${suffix ?? ""})`;
-  if (hasProvenance(r)) {
-    const sourceName = r.cost_rate_sources?.name ?? "Unknown";
-    const detail = r.source_detail ? ` [${r.source_detail}]` : "";
-    return `${base} | source_name: "${sourceName}"${detail}`;
-  }
-  return `${base} | source_name: "MMC Build Seed Data (NSW 2025)"`;
-}
-
 /**
- * Try the enhanced query first (with provenance columns from migration 00019).
- * If it fails, fall back to the legacy query (original columns only).
+ * Query global reference rates with fallback for legacy schema.
  */
-async function queryRates(
+async function queryGlobalRates(
   category: string,
   state: string,
   element?: string
-): Promise<{ data: RateRow[] | null; error: { message: string } | null }> {
+): Promise<RateResult[]> {
   const today = new Date().toISOString().split("T")[0];
 
   // Try enhanced query first
@@ -92,45 +136,92 @@ async function queryRates(
 
   const enhanced = await query;
 
-  if (!enhanced.error) {
-    return enhanced;
+  let rows: RateRow[];
+  if (!enhanced.error && enhanced.data) {
+    rows = enhanced.data;
+  } else {
+    // Fall back to legacy query
+    let legacyQuery = db()
+      .from("cost_reference_rates")
+      .select("element, unit, base_rate, state, year")
+      .eq("category", category);
+
+    if (element) {
+      legacyQuery = legacyQuery.ilike("element", `%${element}%`);
+    }
+
+    legacyQuery = legacyQuery.eq("state", state).order("element");
+    const legacy = await legacyQuery;
+    rows = legacy.data ?? [];
   }
 
-  // Fall back to legacy query (no provenance columns)
-  let legacyQuery = db()
-    .from("cost_reference_rates")
-    .select("element, unit, base_rate, state, year")
-    .eq("category", category);
+  // Deduplicate by element
+  const seen = new Set<string>();
+  const results: RateResult[] = [];
+  for (const r of rows) {
+    if (seen.has(r.element)) continue;
+    seen.add(r.element);
 
-  if (element) {
-    legacyQuery = legacyQuery.ilike("element", `%${element}%`);
+    const sourceName = hasProvenance(r)
+      ? r.cost_rate_sources?.name ?? "MMC Build Seed Data (NSW 2025)"
+      : "MMC Build Seed Data (NSW 2025)";
+    const sourceDetail = hasProvenance(r) ? r.source_detail : null;
+
+    results.push({
+      element: r.element,
+      unit: r.unit,
+      base_rate: r.base_rate,
+      state: r.state,
+      year: r.year,
+      source_name: sourceName,
+      source_detail: sourceDetail,
+      is_override: false,
+    });
   }
 
-  legacyQuery = legacyQuery.eq("state", state).order("element");
+  return results;
+}
 
-  return legacyQuery;
+function formatRateLine(r: RateResult, suffix?: string): string {
+  const overrideTag = r.is_override ? " [CLIENT OVERRIDE]" : "";
+  const detail = r.source_detail ? ` [${r.source_detail}]` : "";
+  return `  - ${r.element}: $${r.base_rate}/${r.unit} (${r.state} ${r.year}${suffix ?? ""}) | source_name: "${r.source_name}"${detail}${overrideTag}`;
 }
 
 export async function executeLookupCostRate(
-  input: { category: string; element?: string; state?: string }
+  input: { category: string; element?: string; state?: string },
+  orgId?: string
 ): Promise<string> {
   const state = input.state ?? "NSW";
 
-  const { data, error } = await queryRates(input.category, state, input.element);
-
-  if (error) {
-    return `Error looking up rates: ${error.message}`;
+  // 1. Check org overrides first
+  let orgRates: RateResult[] = [];
+  if (orgId) {
+    orgRates = await queryOrgOverrides(orgId, input.category, state, input.element);
   }
 
-  if (!data || data.length === 0) {
+  // 2. Get global rates
+  let globalRates = await queryGlobalRates(input.category, state, input.element);
+
+  // 3. Merge: org overrides take priority (by element name)
+  const overrideElements = new Set(orgRates.map((r) => r.element));
+  const nonOverriddenGlobal = globalRates.filter((r) => !overrideElements.has(r.element));
+  const mergedRates = [...orgRates, ...nonOverriddenGlobal];
+
+  if (mergedRates.length === 0) {
     // Fall back to NSW rates
     if (state !== "NSW") {
-      const { data: nswData } = await queryRates(input.category, "NSW", input.element);
+      const nswGlobal = await queryGlobalRates(input.category, "NSW", input.element);
+      let nswOrg: RateResult[] = [];
+      if (orgId) {
+        nswOrg = await queryOrgOverrides(orgId, input.category, "NSW", input.element);
+      }
 
-      if (nswData && nswData.length > 0) {
-        const lines = nswData.map((r) =>
-          formatRateLine(r, `, adjust for ${state}`)
-        );
+      const nswOverrides = new Set(nswOrg.map((r) => r.element));
+      const nswMerged = [...nswOrg, ...nswGlobal.filter((r) => !nswOverrides.has(r.element))];
+
+      if (nswMerged.length > 0) {
+        const lines = nswMerged.map((r) => formatRateLine(r, `, adjust for ${state}`));
         return `Reference rates for "${input.category}" (NSW base, needs ${state} adjustment):\n${lines.join("\n")}`;
       }
     }
@@ -143,17 +234,11 @@ export async function executeLookupCostRate(
     });
   }
 
-  // Deduplicate by element (keep first occurrence — most recent effective_date if enhanced)
-  const seen = new Set<string>();
-  const dedupedData: RateRow[] = [];
-  for (const r of data) {
-    if (!seen.has(r.element)) {
-      seen.add(r.element);
-      dedupedData.push(r);
-    }
-  }
+  const lines = mergedRates.map((r) => formatRateLine(r));
+  const overrideCount = mergedRates.filter((r) => r.is_override).length;
+  const overrideNote = overrideCount > 0
+    ? `\n\nNote: ${overrideCount} rate(s) are client overrides — use these preferentially.`
+    : "";
 
-  const lines = dedupedData.map((r) => formatRateLine(r));
-
-  return `Reference rates for "${input.category}":\n${lines.join("\n")}\n\nIMPORTANT: For each line item that uses a reference rate, set rate_source_name to the source_name shown above. If you estimate a rate yourself, set rate_source_name to "AI Estimated".`;
+  return `Reference rates for "${input.category}":\n${lines.join("\n")}\n\nIMPORTANT: For each line item that uses a reference rate, set rate_source_name to the source_name shown above. If you estimate a rate yourself, set rate_source_name to "AI Estimated".${overrideNote}`;
 }

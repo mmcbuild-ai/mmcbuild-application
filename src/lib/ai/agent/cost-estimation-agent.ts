@@ -206,7 +206,8 @@ async function executeCostToolCall(
 
     case "lookup_cost_rate":
       return executeLookupCostRate(
-        input as { category: string; element?: string; state?: string }
+        input as { category: string; element?: string; state?: string },
+        context.orgId
       );
 
     case "get_design_suggestions":
