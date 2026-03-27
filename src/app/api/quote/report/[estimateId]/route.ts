@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { db } from "@/lib/supabase/db";
 import { generateCostPdf } from "@/lib/quote/report-pdf";
 import { NextResponse } from "next/server";
 
@@ -18,7 +18,7 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const admin = createAdminClient();
+  const admin = db();
 
   const { data: estimate, error: estError } = await admin
     .from("cost_estimates")
@@ -30,14 +30,21 @@ export async function GET(
     return NextResponse.json({ error: "Estimate not found" }, { status: 404 });
   }
 
-  if (estimate.status !== "completed") {
+  const rec = estimate as {
+    id: string; status: string; summary: string | null;
+    total_traditional: number | null; total_mmc: number | null; total_savings_pct: number | null;
+    region: string | null; traditional_duration_weeks: number | null; mmc_duration_weeks: number | null;
+    completed_at: string | null; project_id: string;
+  };
+
+  if (rec.status !== "completed") {
     return NextResponse.json({ error: "Report not yet completed" }, { status: 400 });
   }
 
   const { data: project } = await admin
     .from("projects")
     .select("name, address")
-    .eq("id", estimate.project_id)
+    .eq("id", rec.project_id)
     .single();
 
   const { data: lineItems } = await admin
@@ -49,14 +56,14 @@ export async function GET(
   const pdfBytes = generateCostPdf({
     projectName: project?.name ?? "Untitled Project",
     projectAddress: project?.address ?? null,
-    summary: estimate.summary ?? "",
-    totalTraditional: estimate.total_traditional ?? 0,
-    totalMmc: estimate.total_mmc ?? 0,
-    totalSavingsPct: estimate.total_savings_pct,
-    region: estimate.region,
-    completedAt: estimate.completed_at ?? new Date().toISOString(),
-    traditionalDurationWeeks: estimate.traditional_duration_weeks ?? null,
-    mmcDurationWeeks: estimate.mmc_duration_weeks ?? null,
+    summary: rec.summary ?? "",
+    totalTraditional: rec.total_traditional ?? 0,
+    totalMmc: rec.total_mmc ?? 0,
+    totalSavingsPct: rec.total_savings_pct,
+    region: rec.region,
+    completedAt: rec.completed_at ?? new Date().toISOString(),
+    traditionalDurationWeeks: rec.traditional_duration_weeks ?? null,
+    mmcDurationWeeks: rec.mmc_duration_weeks ?? null,
     lineItems: (lineItems ?? []) as {
       cost_category: string;
       element_description: string;

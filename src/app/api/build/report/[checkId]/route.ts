@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { db } from "@/lib/supabase/db";
 import { generateBuildPdf } from "@/lib/build/report-pdf";
 import { NextResponse } from "next/server";
 
@@ -18,7 +18,7 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const admin = createAdminClient();
+  const admin = db();
 
   const { data: check, error: checkError } = await admin
     .from("design_checks")
@@ -30,14 +30,16 @@ export async function GET(
     return NextResponse.json({ error: "Check not found" }, { status: 404 });
   }
 
-  if (check.status !== "completed") {
+  const rec = check as { id: string; status: string; summary: string | null; completed_at: string | null; project_id: string };
+
+  if (rec.status !== "completed") {
     return NextResponse.json({ error: "Report not yet completed" }, { status: 400 });
   }
 
   const { data: project } = await admin
     .from("projects")
     .select("name, address")
-    .eq("id", check.project_id)
+    .eq("id", rec.project_id)
     .single();
 
   const { data: suggestions } = await admin
@@ -49,8 +51,8 @@ export async function GET(
   const pdfBytes = generateBuildPdf({
     projectName: project?.name ?? "Untitled Project",
     projectAddress: project?.address ?? null,
-    summary: check.summary ?? "",
-    completedAt: check.completed_at ?? new Date().toISOString(),
+    summary: rec.summary ?? "",
+    completedAt: rec.completed_at ?? new Date().toISOString(),
     suggestions: (suggestions ?? []) as {
       technology_category: string;
       current_approach: string;
