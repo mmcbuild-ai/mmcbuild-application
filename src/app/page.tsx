@@ -9,7 +9,7 @@ export default async function LandingPage() {
   } = await supabase.auth.getUser();
 
   if (user) {
-    redirect("/projects");
+    redirect("/dashboard");
   }
 
   return (
@@ -67,7 +67,7 @@ export default async function LandingPage() {
             </Link>
           </div>
           <p className="mt-4 text-xs text-muted-foreground">
-            60-day free trial &middot; 3 compliance runs &middot; No credit card required
+            14-day free trial &middot; All modules unlocked &middot; No credit card required
           </p>
         </div>
       </section>

@@ -1,8 +1,8 @@
 import { db } from "@/lib/supabase/db";
-import { PLANS, TRIAL_RUN_LIMIT, TRIAL_DAYS } from "./plans";
+import { PLANS, MODULES, TRIAL_RUN_LIMIT, ALL_MODULE_IDS, type ModuleId } from "./plans";
 
 export type SubscriptionStatus = {
-  tier: "trial" | "basic" | "professional" | "enterprise" | "expired";
+  tier: "trial" | "basic" | "professional" | "enterprise" | "modules" | "expired";
   status: "active" | "past_due" | "canceled" | "trialing" | "expired" | "incomplete";
   usageCount: number;
   usageLimit: number;
@@ -11,37 +11,80 @@ export type SubscriptionStatus = {
   periodEnd: string | null;
   cancelAtPeriodEnd: boolean;
   daysRemaining: number | null;
+  activeModules: ModuleId[];
 };
 
 export async function getSubscriptionStatus(orgId: string): Promise<SubscriptionStatus> {
   const admin = db();
 
-  // Check for active subscription
-  const { data: sub } = await admin
+  // Check for active subscription(s)
+  const { data: subs } = await admin
     .from("subscriptions")
     .select("*")
     .eq("org_id", orgId)
     .in("status", ["active", "past_due", "trialing"])
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .single();
+    .order("created_at", { ascending: false });
 
-  if (sub) {
-    const plan = PLANS[sub.plan_id as keyof typeof PLANS];
-    const usageLimit = plan?.runLimit ?? 10;
+  if (subs && subs.length > 0) {
+    // Collect all active modules across all subscriptions
+    const activeModules = new Set<ModuleId>();
+    let totalUsageCount = 0;
+    let totalUsageLimit = 0;
+    let latestPeriodEnd: string | null = null;
+    let cancelAtPeriodEnd = false;
+    let overallStatus: SubscriptionStatus["status"] = "active";
+    let tier: SubscriptionStatus["tier"] = "modules";
+
+    for (const sub of subs) {
+      // Check if this is a legacy plan subscription
+      const plan = PLANS[sub.plan_id as keyof typeof PLANS];
+      if (plan) {
+        // Legacy plan — includes specific modules
+        for (const mod of plan.modules) {
+          activeModules.add(mod);
+        }
+        totalUsageLimit = Math.max(totalUsageLimit, plan.runLimit === Infinity ? 999999 : plan.runLimit);
+        tier = sub.plan_id as SubscriptionStatus["tier"];
+      } else {
+        // Per-module subscription — plan_id is module id
+        const moduleId = sub.plan_id as ModuleId;
+        if (ALL_MODULE_IDS.includes(moduleId)) {
+          activeModules.add(moduleId);
+          const mod = MODULES[moduleId];
+          if (mod.runLimit) {
+            totalUsageLimit += mod.runLimit;
+          }
+        }
+      }
+
+      totalUsageCount = Math.max(totalUsageCount, sub.usage_count || 0);
+
+      if (sub.current_period_end) {
+        if (!latestPeriodEnd || sub.current_period_end > latestPeriodEnd) {
+          latestPeriodEnd = sub.current_period_end;
+        }
+      }
+
+      if (sub.cancel_at_period_end) cancelAtPeriodEnd = true;
+      if (sub.status === "past_due") overallStatus = "past_due";
+    }
+
+    // Default usage limit if no module sets one
+    if (totalUsageLimit === 0) totalUsageLimit = 10;
 
     return {
-      tier: sub.plan_id as SubscriptionStatus["tier"],
-      status: sub.status,
-      usageCount: sub.usage_count,
-      usageLimit,
-      canRunCheck: sub.status === "active" && sub.usage_count < usageLimit,
+      tier,
+      status: overallStatus,
+      usageCount: totalUsageCount,
+      usageLimit: totalUsageLimit,
+      canRunCheck: overallStatus === "active" && totalUsageCount < totalUsageLimit,
       trialEndsAt: null,
-      periodEnd: sub.current_period_end,
-      cancelAtPeriodEnd: sub.cancel_at_period_end,
-      daysRemaining: sub.current_period_end
-        ? Math.ceil((new Date(sub.current_period_end).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+      periodEnd: latestPeriodEnd,
+      cancelAtPeriodEnd,
+      daysRemaining: latestPeriodEnd
+        ? Math.ceil((new Date(latestPeriodEnd).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
         : null,
+      activeModules: Array.from(activeModules),
     };
   }
 
@@ -63,6 +106,7 @@ export async function getSubscriptionStatus(orgId: string): Promise<Subscription
       periodEnd: null,
       cancelAtPeriodEnd: false,
       daysRemaining: null,
+      activeModules: [],
     };
   }
 
@@ -84,9 +128,11 @@ export async function getSubscriptionStatus(orgId: string): Promise<Subscription
       periodEnd: null,
       cancelAtPeriodEnd: false,
       daysRemaining: 0,
+      activeModules: [],
     };
   }
 
+  // Trial — all modules unlocked
   return {
     tier: "trial",
     status: "trialing",
@@ -97,6 +143,7 @@ export async function getSubscriptionStatus(orgId: string): Promise<Subscription
     periodEnd: null,
     cancelAtPeriodEnd: false,
     daysRemaining: trialDaysRemaining,
+    activeModules: [...ALL_MODULE_IDS],
   };
 }
 
@@ -127,4 +174,8 @@ export async function checkAndIncrementUsage(orgId: string): Promise<{
     limit: status.usageLimit,
     tier: status.tier,
   };
+}
+
+export function hasModuleAccess(status: SubscriptionStatus, moduleId: ModuleId): boolean {
+  return status.activeModules.includes(moduleId);
 }

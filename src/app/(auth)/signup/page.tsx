@@ -37,7 +37,7 @@ function SignupForm() {
           Create your MMC Build account
         </CardTitle>
         <CardDescription>
-          Start with a 60-day free trial. No credit card required.
+          Start with a 14-day free trial. All modules unlocked. No credit card required.
         </CardDescription>
       </CardHeader>
       <CardContent>

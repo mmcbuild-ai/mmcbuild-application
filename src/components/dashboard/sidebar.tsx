@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
+  LayoutDashboard,
   FolderOpen,
   ShieldCheck,
   Hammer,
@@ -20,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 
 const navigation = [
+  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Projects", href: "/projects", icon: FolderOpen },
   { name: "MMC Comply", href: "/comply", icon: ShieldCheck },
   { name: "MMC Build", href: "/build", icon: Hammer },
@@ -41,7 +43,7 @@ export function Sidebar() {
     <aside className="flex h-full w-64 flex-col border-r bg-card">
       {/* Logo */}
       <div className="flex h-16 items-center px-6">
-        <Link href="/projects" className="flex items-center gap-2">
+        <Link href="/dashboard" className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm">
             M
           </div>

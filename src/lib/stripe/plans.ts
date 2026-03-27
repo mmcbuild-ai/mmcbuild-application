@@ -1,3 +1,101 @@
+export type ModuleId = "comply" | "build" | "quote" | "direct" | "train";
+
+export const MODULES = {
+  comply: {
+    id: "comply" as const,
+    name: "MMC Comply",
+    tagline: "NCC compliance checking",
+    description:
+      "Automated NCC compliance checking with AI cross-validation. Upload plans and certifications, get findings in minutes.",
+    price: 99,
+    runLimit: 10,
+    isBase: true,
+    href: "/comply",
+    features: [
+      "AI-powered NCC compliance",
+      "Cross-validation (Tier 1 & 2)",
+      "10 compliance runs/month",
+      "Agentic workflow with 4 tools",
+    ],
+    stripePriceId: process.env.STRIPE_COMPLY_PRICE_ID || "",
+  },
+  build: {
+    id: "build" as const,
+    name: "MMC Build",
+    tagline: "Design optimisation",
+    description:
+      "AI design optimisation for modular and prefab construction. Reduce waste, improve buildability, and get actionable suggestions.",
+    price: 79,
+    runLimit: null,
+    isBase: false,
+    href: "/build",
+    features: [
+      "Design optimisation reports",
+      "Buildability scoring",
+      "Material waste reduction",
+      "MMC suitability analysis",
+    ],
+    stripePriceId: process.env.STRIPE_BUILD_PRICE_ID || "",
+  },
+  quote: {
+    id: "quote" as const,
+    name: "MMC Quote",
+    tagline: "Cost estimation",
+    description:
+      "Agentic cost estimation with 70+ Australian rate benchmarks. Compare traditional vs MMC costs with holding cost calculator.",
+    price: 99,
+    runLimit: null,
+    isBase: false,
+    href: "/quote",
+    features: [
+      "AI cost estimation agent",
+      "70+ Australian rate benchmarks",
+      "Traditional vs MMC comparison",
+      "Holding cost calculator",
+    ],
+    stripePriceId: process.env.STRIPE_QUOTE_PRICE_ID || "",
+  },
+  direct: {
+    id: "direct" as const,
+    name: "MMC Direct",
+    tagline: "Trade directory",
+    description:
+      "Find MMC-capable trades across Australia. Verified professionals with reviews, portfolios, and direct enquiry.",
+    price: 49,
+    runLimit: null,
+    isBase: false,
+    href: "/direct",
+    features: [
+      "Verified trade directory",
+      "Search by trade & region",
+      "Reviews & portfolios",
+      "Direct enquiry system",
+    ],
+    stripePriceId: process.env.STRIPE_DIRECT_PRICE_ID || "",
+  },
+  train: {
+    id: "train" as const,
+    name: "MMC Train",
+    tagline: "Training modules",
+    description:
+      "AI-generated training modules for your team. Upskill on modern methods of construction with auto-generated courses and quizzes.",
+    price: 49,
+    runLimit: null,
+    isBase: false,
+    href: "/train",
+    features: [
+      "AI-generated courses",
+      "Auto quizzes & assessments",
+      "Team progress tracking",
+      "Custom course creation",
+    ],
+    stripePriceId: process.env.STRIPE_TRAIN_PRICE_ID || "",
+  },
+} as const;
+
+export const ALL_MODULE_IDS: ModuleId[] = ["comply", "build", "quote", "direct", "train"];
+
+// Legacy plan support for existing subscriptions
 export const PLANS = {
   basic: {
     id: "basic",
@@ -6,8 +104,9 @@ export const PLANS = {
     currency: "aud",
     interval: "month" as const,
     runLimit: 10,
+    modules: ["comply"] as ModuleId[],
     features: [
-      "All modules included",
+      "MMC Comply module",
       "10 compliance runs per month",
       "Standard processing",
       "Email support",
@@ -21,6 +120,7 @@ export const PLANS = {
     currency: "aud",
     interval: "month" as const,
     runLimit: 30,
+    modules: ALL_MODULE_IDS,
     features: [
       "All modules included",
       "30 compliance runs per month",
@@ -38,6 +138,7 @@ export const PLANS = {
     currency: "aud",
     interval: "month" as const,
     runLimit: Infinity,
+    modules: ALL_MODULE_IDS,
     features: [
       "All modules included",
       "Unlimited compliance runs",
@@ -53,8 +154,16 @@ export const PLANS = {
 export type PlanId = keyof typeof PLANS;
 
 export const TRIAL_RUN_LIMIT = 3;
-export const TRIAL_DAYS = 60;
+export const TRIAL_DAYS = 14;
 
 export function getPlanByPriceId(priceId: string) {
   return Object.values(PLANS).find((p) => p.stripePriceId === priceId);
+}
+
+export function getModuleByPriceId(priceId: string) {
+  return Object.values(MODULES).find((m) => m.stripePriceId === priceId);
+}
+
+export function getModuleTotalPrice(moduleIds: ModuleId[]): number {
+  return moduleIds.reduce((sum, id) => sum + MODULES[id].price, 0);
 }

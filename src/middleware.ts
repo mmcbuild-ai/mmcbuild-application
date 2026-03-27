@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 const PROTECTED_ROUTES = [
+  "/dashboard",
   "/projects",
   "/comply",
   "/build",
@@ -59,7 +60,7 @@ export async function middleware(request: NextRequest) {
   // Redirect authenticated users away from auth pages
   if (user && AUTH_ROUTES.some((route) => pathname === route)) {
     const url = request.nextUrl.clone();
-    url.pathname = "/projects";
+    url.pathname = "/dashboard";
     return NextResponse.redirect(url);
   }
 
