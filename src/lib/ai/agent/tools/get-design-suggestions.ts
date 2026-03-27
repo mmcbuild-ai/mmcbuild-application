@@ -3,10 +3,7 @@
  * Retrieves MMC design suggestions from a completed Build report for the same project.
  */
 
-import { createAdminClient } from "@/lib/supabase/admin";
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function db() { return createAdminClient() as unknown as any; }
+import { db } from "@/lib/supabase/db";
 
 export const getDesignSuggestionsDef = {
   name: "get_design_suggestions",

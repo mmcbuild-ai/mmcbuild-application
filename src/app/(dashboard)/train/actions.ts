@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { db } from "@/lib/supabase/db";
 import { inngest } from "@/lib/inngest/client";
 import { courseSchema, lessonSchema } from "@/lib/train/validators";
 import { QUIZ_PASS_THRESHOLD, COURSES_PER_PAGE } from "@/lib/train/constants";
@@ -16,13 +16,6 @@ import type {
   QuizQuestion,
   Certificate,
 } from "@/lib/train/types";
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyDb = any;
-
-function db() {
-  return createAdminClient() as unknown as AnyDb;
-}
 
 async function getAuthProfile() {
   const supabase = await createClient();

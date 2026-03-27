@@ -52,3 +52,7 @@ pnpm-debug.log*
 
 # ─── Vercel ───
 .vercel/
+
+.vercel
+
+CLAUDE.local.md

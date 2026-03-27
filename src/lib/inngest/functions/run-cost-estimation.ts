@@ -1,5 +1,6 @@
 import { inngest } from "../client";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { db } from "@/lib/supabase/db";
 import { retrievePlanChunks } from "@/lib/comply/retriever";
 import { callModel } from "@/lib/ai/models/router";
 import {
@@ -16,9 +17,6 @@ import {
   runCostAgent,
   type CostDependency,
 } from "@/lib/ai/agent/cost-estimation-agent";
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function db() { return createAdminClient() as unknown as any; }
 
 export const runCostEstimation = inngest.createFunction(
   {

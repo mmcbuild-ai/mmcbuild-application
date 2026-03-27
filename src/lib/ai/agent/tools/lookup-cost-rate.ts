@@ -5,10 +5,7 @@
  * Gracefully falls back if migration 00019 (provenance columns) has not been applied.
  */
 
-import { createAdminClient } from "@/lib/supabase/admin";
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function db() { return createAdminClient() as unknown as any; }
+import { db } from "@/lib/supabase/db";
 
 export const lookupCostRateDef = {
   name: "lookup_cost_rate",

@@ -4,11 +4,8 @@
  */
 
 import { inngest } from "../client";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { db } from "@/lib/supabase/db";
 import { getAdapter } from "@/lib/cost/rate-adapters";
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function db() { return createAdminClient() as unknown as any; }
 
 export const ingestCostRates = inngest.createFunction(
   {

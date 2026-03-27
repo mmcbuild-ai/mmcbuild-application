@@ -3,6 +3,8 @@ import Link from "next/link";
 import { getDesignReport } from "@/app/(dashboard)/build/actions";
 import { DesignReport } from "@/components/build/design-report";
 import { OptimisationProgress } from "@/components/build/optimisation-progress";
+import { PlanComparison3D } from "@/components/build/plan-comparison-3d";
+import type { SpatialLayout } from "@/lib/build/spatial/types";
 
 export default async function ReportPage({
   params,
@@ -22,6 +24,7 @@ export default async function ReportPage({
     project_id: string;
     status: string;
     summary: string | null;
+    spatial_layout: SpatialLayout | null;
     completed_at: string | null;
   };
 
@@ -40,7 +43,7 @@ export default async function ReportPage({
   }[];
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="max-w-5xl space-y-6">
       <div>
         <Link
           href={`/build/${projectId}`}
@@ -52,7 +55,33 @@ export default async function ReportPage({
       </div>
 
       {check.status === "completed" ? (
-        <DesignReport check={check} suggestions={suggestions} />
+        <>
+          {/* 3D Plan Comparison Viewer */}
+          {check.spatial_layout && (
+            <div>
+              <h2 className="mb-3 text-lg font-semibold text-zinc-800">
+                Plan Visualisation
+              </h2>
+              <PlanComparison3D
+                layout={check.spatial_layout}
+                suggestions={suggestions.map((s) => ({
+                  id: s.id,
+                  technology_category: s.technology_category,
+                  suggested_alternative: s.suggested_alternative,
+                  estimated_cost_savings: s.estimated_cost_savings,
+                  estimated_time_savings: s.estimated_time_savings,
+                  // Wall/room mapping will be populated by the AI extractor
+                  // as the spatial extraction prompt improves
+                  affected_wall_ids: [],
+                  affected_room_ids: [],
+                }))}
+              />
+            </div>
+          )}
+
+          {/* Existing text-based report */}
+          <DesignReport check={check} suggestions={suggestions} />
+        </>
       ) : (
         <OptimisationProgress
           checkId={reportId}

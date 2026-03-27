@@ -4,6 +4,7 @@ import {
   Calculator,
   Users,
   GraduationCap,
+  CreditCard,
 } from "lucide-react";
 
 export const moduleThemes = {
@@ -54,6 +55,16 @@ export const moduleThemes = {
     heroGradient:
       "bg-gradient-to-br from-[#0B1120] via-indigo-900 to-indigo-700",
     badgeLabel: "MMC Train",
+  },
+  billing: {
+    label: "Billing",
+    icon: CreditCard,
+    accent: "text-emerald-400",
+    accentBg: "bg-emerald-400",
+    accentHover: "hover:bg-emerald-500",
+    heroGradient:
+      "bg-gradient-to-br from-[#022C22] via-emerald-800 to-emerald-600",
+    badgeLabel: "Billing",
   },
 } as const;
 

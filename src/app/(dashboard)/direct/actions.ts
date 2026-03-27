@@ -1,8 +1,8 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { inngest } from "@/lib/inngest/client";
+import { db } from "@/lib/supabase/db";
 import {
   registrationSchema,
   profileUpdateSchema,
@@ -15,13 +15,6 @@ import {
   type EnquiryInput,
   type PortfolioItemInput,
 } from "@/lib/direct/validators";
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyDb = any;
-
-function db() {
-  return createAdminClient() as unknown as AnyDb;
-}
 
 async function getAuthProfile() {
   const supabase = await createClient();

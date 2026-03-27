@@ -38,6 +38,14 @@ export type Events = {
       customerId: string;
       subscriptionId: string;
       status: string;
+      planId: string;
+      orgId: string;
+      currentPeriodEnd: string;
+      currentPeriodStart: string;
+      trialEnd: string | null;
+      cancelAtPeriodEnd: boolean;
+      usageLimit: number;
+      resetUsage: boolean;
     };
   };
   "kb/document.uploaded": {

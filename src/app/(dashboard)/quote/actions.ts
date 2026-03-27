@@ -1,15 +1,8 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { db } from "@/lib/supabase/db";
 import { inngest } from "@/lib/inngest/client";
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyDb = any;
-
-function db() {
-  return createAdminClient() as unknown as AnyDb;
-}
 
 export async function requestCostEstimation(
   projectId: string,

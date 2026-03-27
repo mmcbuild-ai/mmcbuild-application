@@ -1,11 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { db } from "@/lib/supabase/db";
 import { redirect } from "next/navigation";
 import { RateSourceCard } from "@/components/settings/rate-source-card";
 import { NewRateSourceForm } from "@/components/settings/new-rate-source-form";
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function db() { return createAdminClient() as unknown as any; }
 
 export default async function CostRatesPage() {
   const supabase = await createClient();

@@ -1,5 +1,6 @@
 import { inngest } from "../client";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { db } from "@/lib/supabase/db";
 import { retrievePlanChunks } from "@/lib/comply/retriever";
 import { callModel } from "@/lib/ai/models/router";
 import { extractJson } from "@/lib/ai/extract-json";
@@ -9,9 +10,9 @@ import {
   OPTIMISATION_SUMMARY_PROMPT,
 } from "@/lib/ai/prompts/optimisation-system";
 import type { DesignOptimisationResult } from "@/lib/ai/types";
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function db() { return createAdminClient() as unknown as any; }
+import { renderPdfPage } from "@/lib/build/spatial/pdf-to-image";
+import { extractSpatialLayout } from "@/lib/build/spatial/extractor";
+import type { SpatialLayout } from "@/lib/build/spatial/types";
 
 export const runDesignOptimisation = inngest.createFunction(
   {
@@ -71,6 +72,49 @@ export const runDesignOptimisation = inngest.createFunction(
       });
       return { checkId: check.id, error: "No plan content" };
     }
+
+    // 3b. Extract spatial layout from plan PDF (for 3D viewer)
+    const spatialLayout = await step.run("extract-spatial-layout", async () => {
+      try {
+        // Get the plan file URL from storage
+        const { data: plan } = await db()
+          .from("plans")
+          .select("file_path")
+          .eq("id", check.plan_id)
+          .single();
+
+        if (!plan?.file_path) return null;
+
+        // Download the PDF from Supabase Storage
+        const admin = createAdminClient();
+        const { data: fileData } = await admin.storage
+          .from("plans")
+          .download(plan.file_path);
+
+        if (!fileData) return null;
+
+        // Render first page to image
+        const pdfBuffer = Buffer.from(await fileData.arrayBuffer());
+        const imageBase64 = await renderPdfPage(pdfBuffer, 1, 2.0);
+        if (!imageBase64) return null;
+
+        // Extract spatial data using Claude Vision
+        const layout = await extractSpatialLayout(imageBase64, "image/png");
+
+        // Store spatial layout on the design check
+        if (layout) {
+          await db()
+            .from("design_checks")
+            .update({ spatial_layout: layout })
+            .eq("id", check.id);
+        }
+
+        return layout;
+      } catch (err) {
+        console.error("Spatial extraction failed (non-fatal):", err);
+        return null;
+      }
+    }) as SpatialLayout | null;
 
     // 4. Analyse design with AI
     const suggestions = await step.run("analyse-design", async () => {

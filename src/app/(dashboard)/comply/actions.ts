@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { inngest } from "@/lib/inngest/client";
 import { randomBytes } from "crypto";
 import { addProjectContributor } from "@/app/(dashboard)/projects/actions";
+import { checkAndIncrementUsage } from "@/lib/stripe/subscription";
 
 export async function requestComplianceCheck(
   projectId: string,
@@ -28,6 +29,17 @@ export async function requestComplianceCheck(
 
   if (!profile) {
     return { error: "Profile not found" };
+  }
+
+  // Paywall check — atomic usage increment
+  const usage = await checkAndIncrementUsage(profile.org_id);
+  if (!usage.allowed) {
+    return {
+      error: "usage_limit_reached",
+      usageCount: usage.newCount,
+      usageLimit: usage.limit,
+      tier: usage.tier,
+    };
   }
 
   // Load questionnaire data for context

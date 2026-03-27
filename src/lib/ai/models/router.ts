@@ -20,6 +20,7 @@ const ROUTING_TABLE: Record<AIFunction, string[]> = {
   reranking: ["bge-reranker-v2-m3"],
   reconciliation: ["claude-sonnet-4", "gpt-4o"],
   training_content: ["claude-sonnet-4", "gpt-4o", "claude-haiku-4.5"],
+  plan_vision: ["claude-sonnet-4", "gpt-4o"],
 };
 
 /**

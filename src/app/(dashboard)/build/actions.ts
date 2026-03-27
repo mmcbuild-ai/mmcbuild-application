@@ -1,15 +1,8 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { inngest } from "@/lib/inngest/client";
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyDb = any;
-
-function db() {
-  return createAdminClient() as unknown as AnyDb;
-}
+import { db } from "@/lib/supabase/db";
 
 export async function requestDesignOptimisation(
   projectId: string,
@@ -66,7 +59,7 @@ export async function requestDesignOptimisation(
 export async function getDesignReport(checkId: string) {
   const { data: check, error: checkError } = await db()
     .from("design_checks")
-    .select("id, project_id, org_id, plan_id, status, summary, started_at, completed_at, created_at")
+    .select("id, project_id, org_id, plan_id, status, summary, spatial_layout, started_at, completed_at, created_at")
     .eq("id", checkId)
     .single();
 

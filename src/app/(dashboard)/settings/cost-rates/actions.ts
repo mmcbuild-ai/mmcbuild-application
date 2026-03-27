@@ -1,13 +1,10 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { db } from "@/lib/supabase/db";
 import { inngest } from "@/lib/inngest/client";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function db() { return createAdminClient() as unknown as any; }
 
 async function requireAdmin() {
   const supabase = await createClient();

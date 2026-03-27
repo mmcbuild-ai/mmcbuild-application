@@ -15,6 +15,7 @@ AI-powered compliance and construction intelligence platform for Australian resi
 - `pnpm dev` — Start dev server
 - `pnpm build` — Production build
 - `pnpm lint` — ESLint
+- `pnpm test` — Run vitest unit tests
 - `npx tsc --noEmit` — Type check
 
 ## Architecture Notes
@@ -24,6 +25,9 @@ AI-powered compliance and construction intelligence platform for Australian resi
 - Inngest for any job > 5 seconds
 - All AI API keys server-side only
 - Zod for all input validation
+- Shared `db()` helper at `src/lib/supabase/db.ts` for tables not in generated types
+- Stripe billing: paywall at both middleware (UX) and Server Action (correctness)
+- All AI calls route through `callModel()` from `src/lib/ai/models/router.ts`
 
 ## Six Modules
 1. MMC Comply — NCC compliance checking (Stage 2)
@@ -34,5 +38,17 @@ AI-powered compliance and construction intelligence platform for Australian resi
 6. Billing — Stripe subscriptions (Stage 7)
 
 ## Current Status
-Stage 1 complete: MMC Comply module — plan upload, questionnaire, AI compliance analysis (Claude + RAG), report with findings/severity/citations. Inngest async processing pipeline.
-Stage 0 complete: Foundation scaffold with auth, dashboard shell, Supabase schema, Inngest integration.
+- Stage 0: Foundation scaffold — COMPLETE
+- Stage 1-2: MMC Comply — COMPLETE (AI compliance, RAG, cross-validation, agentic workflow)
+- Stage 3: MMC Build — COMPLETE (design optimisation, 3D viewer)
+- Stage 4: MMC Quote — COMPLETE (agentic cost estimation)
+- Stage 5: MMC Direct — COMPLETE (trade directory)
+- Stage 6: MMC Train — COMPLETE (LMS, AI content generation)
+- Stage 7: Billing — IN PROGRESS (Stripe subscriptions, paywall, usage metering)
+
+## Testing
+- Framework: Vitest
+- Run: `pnpm test`
+- Test dir: `tests/unit/`, `tests/integration/`
+- When writing new functions, write a corresponding test
+- When fixing a bug, write a regression test

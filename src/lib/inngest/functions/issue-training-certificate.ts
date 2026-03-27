@@ -1,16 +1,10 @@
 import { inngest } from "../client";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { db } from "@/lib/supabase/db";
 import { generateCertificatePdf } from "@/lib/train/certificate-pdf";
 import { getResend, FROM_EMAIL } from "@/lib/email/resend";
 import { buildCertificateIssuedEmail } from "@/lib/email/templates/certificate-issued";
 import { COURSE_CATEGORY_LABELS, DIFFICULTY_LABELS } from "@/lib/train/constants";
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyDb = any;
-
-function db() {
-  return createAdminClient() as unknown as AnyDb;
-}
 
 export const issueTrainingCertificate = inngest.createFunction(
   {
