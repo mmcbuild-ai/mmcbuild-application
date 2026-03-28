@@ -17,7 +17,7 @@ import { Separator } from "@/components/ui/separator";
 import { createProject } from "@/app/(dashboard)/projects/actions";
 import { Plus, Loader2, AlertTriangle } from "lucide-react";
 import { AddressAutocomplete } from "@/components/common/address-autocomplete";
-import { usePropertyOnboarding } from "@/lib/property-services";
+import { usePropertyOnboarding, PropertyAssessment } from "@/lib/property-services";
 import type { GeocodedAddress } from "@/lib/mapbox-types";
 
 export function CreateProjectDialog() {
@@ -219,6 +219,16 @@ export function CreateProjectDialog() {
                   </div>
                 </>
               )}
+
+              {/* Use case assessment */}
+              <Separator />
+              <PropertyAssessment
+                profile={profile}
+                onAssess={property.assess}
+                assessing={property.stage === "assessing"}
+                assessment={property.assessment}
+                product="mmcbuild"
+              />
             </div>
           )}
 

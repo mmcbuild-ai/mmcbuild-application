@@ -26,3 +26,6 @@ export type { PropertyServicesConfig } from './client'
 // React hook
 export { usePropertyOnboarding } from './usePropertyOnboarding'
 export type { UsePropertyOnboardingReturn, OnboardingStage } from './usePropertyOnboarding'
+
+// Components
+export { PropertyAssessment } from './PropertyAssessment'
