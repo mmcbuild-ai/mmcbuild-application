@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/hooks/use-confirm";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -244,6 +245,7 @@ function MemberRow({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const { confirm, dialog } = useConfirm();
 
   function handleRoleChange(newRole: string) {
     startTransition(async () => {
@@ -252,8 +254,14 @@ function MemberRow({
     });
   }
 
-  function handleRemove() {
-    if (!confirm(`Remove ${member.full_name} from the organisation?`)) return;
+  async function handleRemove() {
+    const ok = await confirm({
+      title: "Remove member?",
+      description: `Remove ${member.full_name} from the organisation?`,
+      confirmLabel: "Remove",
+      destructive: true,
+    });
+    if (!ok) return;
     startTransition(async () => {
       await removeMember(member.id);
       router.refresh();
@@ -262,6 +270,7 @@ function MemberRow({
 
   return (
     <TableRow>
+      {dialog}
       <TableCell className="font-medium">
         {member.full_name}
         {isSelf && (

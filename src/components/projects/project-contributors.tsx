@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useConfirm } from "@/hooks/use-confirm";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -306,22 +307,32 @@ function DeleteButton({
   onDeleted: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
+  const { confirm, dialog } = useConfirm();
 
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="h-8 w-8 text-destructive hover:text-destructive"
-      disabled={isPending}
-      onClick={() => {
-        if (!confirm("Remove this contributor?")) return;
-        startTransition(async () => {
-          const result = await removeProjectContributor(contributorId);
-          if (!result.error) onDeleted();
-        });
-      }}
-    >
-      <Trash2 className="h-3.5 w-3.5" />
-    </Button>
+    <>
+      {dialog}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8 text-destructive hover:text-destructive"
+        disabled={isPending}
+        onClick={async () => {
+          const ok = await confirm({
+            title: "Remove contributor?",
+            description: "Remove this contributor from the project?",
+            confirmLabel: "Remove",
+            destructive: true,
+          });
+          if (!ok) return;
+          startTransition(async () => {
+            const result = await removeProjectContributor(contributorId);
+            if (!result.error) onDeleted();
+          });
+        }}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </Button>
+    </>
   );
 }

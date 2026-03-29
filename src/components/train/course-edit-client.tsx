@@ -11,6 +11,7 @@ import { publishCourse, archiveCourse, deleteLesson } from "@/app/(dashboard)/tr
 import type { Course, Lesson } from "@/lib/train/types";
 import { Trash2 } from "lucide-react";
 import { useState } from "react";
+import { useConfirm } from "@/hooks/use-confirm";
 
 interface CourseEditClientProps {
   course: Course;
@@ -21,6 +22,7 @@ export function CourseEditClient({ course, lessons }: CourseEditClientProps) {
   const router = useRouter();
   const [editingLessonId, setEditingLessonId] = useState<string | null>(null);
   const [showNewLesson, setShowNewLesson] = useState(false);
+  const { confirm, dialog } = useConfirm();
 
   async function handlePublish() {
     await publishCourse(course.id);
@@ -33,7 +35,13 @@ export function CourseEditClient({ course, lessons }: CourseEditClientProps) {
   }
 
   async function handleDeleteLesson(lessonId: string) {
-    if (!confirm("Delete this lesson?")) return;
+    const ok = await confirm({
+      title: "Delete lesson?",
+      description: "Delete this lesson? This cannot be undone.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     await deleteLesson(lessonId);
     router.refresh();
   }
@@ -47,6 +55,7 @@ export function CourseEditClient({ course, lessons }: CourseEditClientProps) {
 
   return (
     <div>
+      {dialog}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">{course.title}</h1>

@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/hooks/use-confirm";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -93,6 +94,7 @@ function certTypeLabel(certType: string): string {
 
 export function CertificationUpload({ projectId, existingCerts = [] }: CertificationUploadProps) {
   const router = useRouter();
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -249,7 +251,13 @@ export function CertificationUpload({ projectId, existingCerts = [] }: Certifica
   }
 
   async function handleDelete(certId: string) {
-    if (!confirm("Delete this certification? This cannot be undone.")) return;
+    const ok = await confirm({
+      title: "Delete certification?",
+      description: "Delete this certification? This cannot be undone.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     setDeletingId(certId);
     const result = await deleteCertification(certId);
     setDeletingId(null);
@@ -260,6 +268,7 @@ export function CertificationUpload({ projectId, existingCerts = [] }: Certifica
 
   return (
     <div className="space-y-6">
+      {confirmDialog}
       {!stagedFile ? (
         <Card
           className={`border-2 border-dashed transition-colors ${

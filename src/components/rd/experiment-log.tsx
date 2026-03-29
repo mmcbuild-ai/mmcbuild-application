@@ -6,6 +6,7 @@ import {
   updateExperiment,
   deleteExperiment,
 } from "@/app/(dashboard)/settings/rd-tracking/actions";
+import { useConfirm } from "@/hooks/use-confirm";
 import { RD_STAGES } from "@/lib/rd-constants";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,6 +54,7 @@ export function ExperimentLog({
 }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   async function handleCreate(formData: FormData) {
     setLoading(true);
@@ -71,7 +73,13 @@ export function ExperimentLog({
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this experiment? This cannot be undone.")) return;
+    const ok = await confirm({
+      title: "Delete experiment?",
+      description: "Delete this experiment? This cannot be undone.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await deleteExperiment(id);
     } catch (err) {
@@ -81,6 +89,7 @@ export function ExperimentLog({
 
   return (
     <div className="space-y-4">
+      {confirmDialog}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Experiment Log</h2>
         <Dialog open={open} onOpenChange={setOpen}>

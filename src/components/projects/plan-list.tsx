@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FileText, Trash2, Loader2, RotateCw } from "lucide-react";
 import { deletePlan, retryPlanProcessing } from "@/app/(dashboard)/projects/actions";
+import { useConfirm } from "@/hooks/use-confirm";
 
 interface Plan {
   id: string;
@@ -19,11 +20,16 @@ export function PlanList({ plans }: { plans: Plan[] }) {
   const router = useRouter();
   const [deletePending, startDeleteTransition] = useTransition();
   const [retryPending, startRetryTransition] = useTransition();
+  const { confirm, dialog } = useConfirm();
 
-  function handleDelete(planId: string) {
-    if (!confirm("Delete this plan and its embeddings? This cannot be undone.")) {
-      return;
-    }
+  async function handleDelete(planId: string) {
+    const ok = await confirm({
+      title: "Delete plan?",
+      description: "Delete this plan and its embeddings? This cannot be undone.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
 
     startDeleteTransition(async () => {
       const result = await deletePlan(planId);
@@ -50,6 +56,7 @@ export function PlanList({ plans }: { plans: Plan[] }) {
 
   return (
     <div>
+      {dialog}
       <h2 className="mb-3 text-sm font-semibold">Uploaded Plans</h2>
       <div className="space-y-2">
         {plans.map((plan) => {
