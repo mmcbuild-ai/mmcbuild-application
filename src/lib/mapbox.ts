@@ -101,6 +101,7 @@ export async function reverseSearch(
     `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json`
   );
   url.searchParams.set("access_token", MAPBOX_TOKEN);
+  url.searchParams.set("types", "address");
   url.searchParams.set("limit", "3");
 
   const resp = await fetch(url.toString());
