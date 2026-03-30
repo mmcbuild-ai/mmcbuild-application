@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { MapPin } from "lucide-react";
-import { forwardSearch, featureToGeocodedAddress } from "@/lib/mapbox";
+import { forwardSearch, reverseSearch, parseCoordinates, featureToGeocodedAddress } from "@/lib/mapbox";
 import type { MapboxFeature, GeocodedAddress } from "@/lib/mapbox-types";
 
 interface AddressAutocompleteProps {
@@ -27,7 +27,10 @@ export function AddressAutocomplete({
   const search = useCallback(async (q: string) => {
     setLoading(true);
     try {
-      const results = await forwardSearch(q);
+      const coords = parseCoordinates(q);
+      const results = coords
+        ? await reverseSearch(coords.lat, coords.lng)
+        : await forwardSearch(q);
       setSuggestions(results);
       setOpen(results.length > 0);
     } finally {
