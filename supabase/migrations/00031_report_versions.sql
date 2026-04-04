@@ -3,7 +3,7 @@
 -- Versions are never overwritten — full audit trail per module per project.
 
 CREATE TABLE report_versions (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   org_id UUID NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
   module TEXT NOT NULL CHECK (module IN ('comply', 'build', 'quote')),

@@ -3,7 +3,7 @@
 -- These are unauthenticated public submissions that go through admin approval.
 
 CREATE TABLE directory_listings (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   company_name TEXT NOT NULL,
   abn TEXT,
   categories TEXT[] NOT NULL DEFAULT '{}',
