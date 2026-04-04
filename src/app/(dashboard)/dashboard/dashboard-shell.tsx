@@ -9,13 +9,14 @@ import type { SubscriptionStatus } from "@/lib/stripe/subscription";
 interface DashboardShellProps {
   status: SubscriptionStatus;
   isAdmin: boolean;
+  hasProjects: boolean;
 }
 
-export function DashboardShell({ status, isAdmin }: DashboardShellProps) {
+export function DashboardShell({ status, isAdmin, hasProjects }: DashboardShellProps) {
   const [view, setView] = useState<"user" | "admin">("user");
 
   if (!isAdmin) {
-    return <DashboardModules status={status} />;
+    return <DashboardModules status={status} hasProjects={hasProjects} />;
   }
 
   return (
@@ -51,7 +52,7 @@ export function DashboardShell({ status, isAdmin }: DashboardShellProps) {
 
       {/* Content */}
       {view === "user" ? (
-        <DashboardModules status={status} />
+        <DashboardModules status={status} hasProjects={hasProjects} />
       ) : (
         <AdminDashboard />
       )}

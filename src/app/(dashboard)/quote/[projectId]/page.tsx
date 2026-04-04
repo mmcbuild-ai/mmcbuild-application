@@ -14,6 +14,8 @@ import { redirect } from "next/navigation";
 import { getProjectPlans } from "@/app/(dashboard)/projects/actions";
 import { getProjectCostEstimates } from "../actions";
 import { RunEstimateButton } from "@/components/quote/run-estimate-button";
+import { ReportVersionList } from "@/components/shared/report-version-list";
+import { getReportVersions } from "@/lib/report-versions";
 
 export default async function ProjectQuotePage({
   params,
@@ -70,9 +72,10 @@ export default async function ProjectQuotePage({
     );
   }
 
-  const [plans, estimates] = await Promise.all([
+  const [plans, estimates, versions] = await Promise.all([
     getProjectPlans(projectId),
     getProjectCostEstimates(projectId),
+    getReportVersions(projectId, "quote"),
   ]);
 
   const readyPlan = plans.find(
@@ -150,7 +153,17 @@ export default async function ProjectQuotePage({
         </Card>
       </div>
 
-      {estimates.length > 0 && (
+      {/* Version history */}
+      {versions.length > 0 && (
+        <ReportVersionList
+          versions={versions}
+          module="quote"
+          projectId={projectId}
+        />
+      )}
+
+      {/* Past estimates (fallback for pre-versioning) */}
+      {versions.length === 0 && estimates.length > 0 && (
         <div>
           <h2 className="mb-3 text-lg font-semibold">
             Past Cost Estimates

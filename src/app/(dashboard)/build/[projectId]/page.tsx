@@ -12,8 +12,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { getProjectPlans } from "@/app/(dashboard)/projects/actions";
-import { getProjectDesignChecks } from "../actions";
+import { getProjectDesignChecks, getProjectSelectedSystems } from "../actions";
 import { RunOptimisationButton } from "@/components/build/run-optimisation-button";
+import { SystemSelectionPanel } from "@/components/build/system-selection-panel";
+import { ReportVersionList } from "@/components/shared/report-version-list";
+import { getReportVersions } from "@/lib/report-versions";
 
 export default async function ProjectBuildPage({
   params,
@@ -69,9 +72,11 @@ export default async function ProjectBuildPage({
     );
   }
 
-  const [plans, checks] = await Promise.all([
+  const [plans, checks, selectedSystems, versions] = await Promise.all([
     getProjectPlans(projectId),
     getProjectDesignChecks(projectId),
+    getProjectSelectedSystems(projectId),
+    getReportVersions(projectId, "build"),
   ]);
 
   const readyPlan = plans.find(
@@ -93,6 +98,13 @@ export default async function ProjectBuildPage({
           {project.address ?? "No address"}
         </p>
       </div>
+
+      {/* Construction system selection */}
+      <SystemSelectionPanel
+        projectId={projectId}
+        initialSystems={selectedSystems}
+        hasDownstreamReports={checks.length > 0}
+      />
 
       {/* Plan status + Run button */}
       <div className="grid gap-6 md:grid-cols-2">
@@ -150,8 +162,14 @@ export default async function ProjectBuildPage({
         </Card>
       </div>
 
-      {/* Past reports */}
-      {checks.length > 0 && (
+      {/* Version history */}
+      {versions.length > 0 ? (
+        <ReportVersionList
+          versions={versions}
+          module="build"
+          projectId={projectId}
+        />
+      ) : checks.length > 0 ? (
         <div>
           <h2 className="mb-3 text-lg font-semibold">
             Past Design Optimisation Reports
@@ -190,7 +208,7 @@ export default async function ProjectBuildPage({
             )}
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

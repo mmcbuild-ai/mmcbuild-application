@@ -29,6 +29,8 @@ import {
 } from "../actions";
 import { RunCheckButton } from "@/components/comply/run-check-button";
 import { ReadinessIndicators } from "@/components/projects/readiness-indicators";
+import { ReportVersionList } from "@/components/shared/report-version-list";
+import { getReportVersions } from "@/lib/report-versions";
 
 export default async function ProjectComplyPage({
   params,
@@ -90,12 +92,13 @@ export default async function ProjectComplyPage({
     : { data: null };
   const canDeleteChecks = profile?.role === "owner" || profile?.role === "admin";
 
-  const [plans, questionnaire, checks, certifications, contributors] = await Promise.all([
+  const [plans, questionnaire, checks, certifications, contributors, versions] = await Promise.all([
     getProjectPlans(projectId),
     getProjectQuestionnaire(projectId),
     getProjectChecks(projectId),
     getProjectCertifications(projectId),
     getProjectContributors(projectId),
+    getReportVersions(projectId, "comply"),
   ]);
 
   const readyPlan = plans.find(
@@ -214,8 +217,17 @@ export default async function ProjectComplyPage({
         </CardContent>
       </Card>
 
-      {/* Past checks */}
-      {checks.length > 0 && (
+      {/* Version history */}
+      {versions.length > 0 && (
+        <ReportVersionList
+          versions={versions}
+          module="comply"
+          projectId={projectId}
+        />
+      )}
+
+      {/* Past checks (fallback for pre-versioning) */}
+      {versions.length === 0 && checks.length > 0 && (
         <div>
           <h2 className="mb-3 text-lg font-semibold">Past Compliance Checks</h2>
           <div className="space-y-2">

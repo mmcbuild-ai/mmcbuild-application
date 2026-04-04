@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateCompliancePdf } from "@/lib/comply/report-pdf";
 import { NextResponse } from "next/server";
+import { db } from "@/lib/supabase/db";
 
 export async function GET(
   _request: Request,
@@ -76,10 +77,20 @@ export async function GET(
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/-+$/, "");
 
+  // Look up version number for this check
+  const { data: version } = await db()
+    .from("report_versions")
+    .select("version_number")
+    .eq("source_id", checkId)
+    .eq("module", "comply")
+    .single();
+  const vNum = (version as { version_number: number } | null)?.version_number;
+  const vSuffix = vNum ? `-v${vNum}` : `-${checkId.slice(0, 8)}`;
+
   return new NextResponse(Buffer.from(pdfBytes), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="mmc-comply-${projectSlug}-${checkId.slice(0, 8)}.pdf"`,
+      "Content-Disposition": `attachment; filename="mmc-comply-${projectSlug}${vSuffix}.pdf"`,
     },
   });
 }

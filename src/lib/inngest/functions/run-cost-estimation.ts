@@ -17,6 +17,7 @@ import {
   runCostAgent,
   type CostDependency,
 } from "@/lib/ai/agent/cost-estimation-agent";
+import { createReportVersion } from "@/lib/report-versions";
 
 export const runCostEstimation = inngest.createFunction(
   {
@@ -115,6 +116,20 @@ export const runCostEstimation = inngest.createFunction(
         : "No detailed project context available.";
     });
 
+    // 4b. Load selected construction systems
+    const systemsContext = await step.run("load-selected-systems", async () => {
+      const { data } = await db()
+        .from("projects")
+        .select("selected_systems")
+        .eq("id", projectId)
+        .single();
+      const systems = (data as { selected_systems: string[] | null } | null)?.selected_systems;
+      if (!Array.isArray(systems) || systems.length === 0) return "";
+      return `\nSelected construction systems: ${systems.join(", ")}. Pre-populate MMC cost items with rates appropriate for these systems.`;
+    });
+
+    const fullProjectContext = projectContext + systemsContext;
+
     // 5. Phased parallel agentic execution
     const resultMap = new Map<string, CostCategoryResult>();
     const priorResults = new Map<string, CostCategoryResult>();
@@ -145,7 +160,7 @@ export const runCostEstimation = inngest.createFunction(
               const agentResult = await runCostAgent(
                 category,
                 planContent,
-                projectContext,
+                fullProjectContext,
                 {
                   orgId: estimate.org_id,
                   estimateId: estimate.id,
@@ -307,7 +322,7 @@ export const runCostEstimation = inngest.createFunction(
       try {
         const result = await callModel("cost_primary", {
           system: "You are an expert Australian construction scheduler estimating project durations.",
-          messages: [{ role: "user", content: COST_DURATION_PROMPT(projectContext, catSummary) }],
+          messages: [{ role: "user", content: COST_DURATION_PROMPT(fullProjectContext, catSummary) }],
           maxTokens: 1024,
           orgId: estimate.org_id,
           checkId: estimate.id,
@@ -348,6 +363,32 @@ export const runCostEstimation = inngest.createFunction(
           completed_at: new Date().toISOString(),
         })
         .eq("id", estimate.id);
+    });
+
+    // 13. Save report version
+    await step.run("save-report-version", async () => {
+      const { data: lineItems } = await db()
+        .from("cost_line_items")
+        .select("*")
+        .eq("estimate_id", estimate.id)
+        .order("sort_order", { ascending: true });
+
+      await createReportVersion({
+        projectId,
+        orgId: estimate.org_id,
+        module: "quote",
+        sourceId: estimate.id,
+        reportData: {
+          summary,
+          total_traditional: Math.round(finalTraditional),
+          total_mmc: Math.round(finalMmc),
+          total_savings_pct: savingsPct,
+          traditional_duration_weeks: durations.traditional_duration_weeks,
+          mmc_duration_weeks: durations.mmc_duration_weeks,
+          region: estimate.region,
+          line_items: lineItems ?? [],
+        },
+      });
     });
 
     return {

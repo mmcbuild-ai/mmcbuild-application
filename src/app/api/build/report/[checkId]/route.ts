@@ -71,10 +71,20 @@ export async function GET(
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/-+$/, "");
 
+  // Look up version number for this check
+  const { data: version } = await admin
+    .from("report_versions")
+    .select("version_number")
+    .eq("source_id", checkId)
+    .eq("module", "build")
+    .single();
+  const vNum = (version as { version_number: number } | null)?.version_number;
+  const vSuffix = vNum ? `-v${vNum}` : `-${checkId.slice(0, 8)}`;
+
   return new NextResponse(Buffer.from(pdfBytes), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="mmc-build-${projectSlug}-${checkId.slice(0, 8)}.pdf"`,
+      "Content-Disposition": `attachment; filename="mmc-build-${projectSlug}${vSuffix}.pdf"`,
     },
   });
 }

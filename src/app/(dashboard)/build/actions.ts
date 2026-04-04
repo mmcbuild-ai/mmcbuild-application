@@ -1,8 +1,10 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { inngest } from "@/lib/inngest/client";
 import { db } from "@/lib/supabase/db";
+import { revalidatePath } from "next/cache";
 
 export async function requestDesignOptimisation(
   projectId: string,
@@ -74,6 +76,65 @@ export async function getDesignReport(checkId: string) {
     .order("sort_order", { ascending: true });
 
   return { check, suggestions: suggestions ?? [] };
+}
+
+export async function updateSelectedSystems(
+  projectId: string,
+  systems: string[]
+) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("org_id")
+    .eq("user_id", user.id)
+    .single();
+
+  if (!profile) return { error: "Profile not found" };
+
+  const admin = createAdminClient();
+
+  const { data: project } = await admin
+    .from("projects")
+    .select("org_id")
+    .eq("id", projectId)
+    .single();
+
+  if (!project || project.org_id !== profile.org_id) {
+    return { error: "Project not found" };
+  }
+
+  const { error } = await admin
+    .from("projects")
+    .update({
+      selected_systems: systems,
+      updated_at: new Date().toISOString(),
+    } as never)
+    .eq("id", projectId);
+
+  if (error) return { error: `Failed to update systems: ${error.message}` };
+
+  revalidatePath(`/build/${projectId}`);
+  revalidatePath(`/comply/${projectId}`);
+  revalidatePath(`/quote/${projectId}`);
+  return { success: true };
+}
+
+export async function getProjectSelectedSystems(projectId: string): Promise<string[]> {
+  const { data } = await db()
+    .from("projects")
+    .select("selected_systems")
+    .eq("id", projectId)
+    .single();
+
+  if (!data) return [];
+  const systems = (data as { selected_systems: string[] | null }).selected_systems;
+  return Array.isArray(systems) ? systems : [];
 }
 
 export async function getProjectDesignChecks(projectId: string) {

@@ -13,6 +13,7 @@ import type { DesignOptimisationResult } from "@/lib/ai/types";
 import { renderPdfPage } from "@/lib/build/spatial/pdf-to-image";
 import { extractSpatialLayout } from "@/lib/build/spatial/extractor";
 import type { SpatialLayout } from "@/lib/build/spatial/types";
+import { createReportVersion } from "@/lib/report-versions";
 
 export const runDesignOptimisation = inngest.createFunction(
   {
@@ -116,10 +117,25 @@ export const runDesignOptimisation = inngest.createFunction(
       }
     }) as SpatialLayout | null;
 
+    // 3c. Load selected construction systems
+    const selectedSystems = await step.run("load-selected-systems", async () => {
+      const { data } = await db()
+        .from("projects")
+        .select("selected_systems")
+        .eq("id", projectId)
+        .single();
+      const systems = (data as { selected_systems: string[] | null } | null)?.selected_systems;
+      return Array.isArray(systems) && systems.length > 0 ? systems : null;
+    });
+
     // 4. Analyse design with AI
     const suggestions = await step.run("analyse-design", async () => {
+      const systemsContext = selectedSystems
+        ? `\n\nSELECTED CONSTRUCTION SYSTEMS:\nThe project owner has selected the following MMC systems of interest: ${selectedSystems.join(", ")}.\nPrioritise suggestions for these systems, but still include other opportunities if relevant.`
+        : "";
+
       const result = await callModel("design_primary", {
-        system: OPTIMISATION_SYSTEM_PROMPT,
+        system: OPTIMISATION_SYSTEM_PROMPT + systemsContext,
         messages: [{ role: "user", content: OPTIMISATION_USER_PROMPT(planContent) }],
         maxTokens: 4096,
         orgId: check.org_id,
@@ -182,6 +198,26 @@ export const runDesignOptimisation = inngest.createFunction(
           completed_at: new Date().toISOString(),
         } as never)
         .eq("id", check.id);
+    });
+
+    // 8. Save report version
+    await step.run("save-report-version", async () => {
+      const { data: allSuggestions } = await db()
+        .from("design_suggestions")
+        .select("*")
+        .eq("check_id", check.id)
+        .order("sort_order", { ascending: true });
+
+      await createReportVersion({
+        projectId,
+        orgId: check.org_id,
+        module: "build",
+        sourceId: check.id,
+        reportData: {
+          summary,
+          suggestions: allSuggestions ?? [],
+        },
+      });
     });
 
     return {

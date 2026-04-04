@@ -18,6 +18,7 @@ import {
 import { EXECUTION_PHASES, getCategoryPhase } from "@/lib/ai/agent/compliance-agent";
 import { getFewShotExamples } from "@/lib/ai/feedback/prompt-enricher";
 import { calibrateConfidence } from "@/lib/ai/feedback/confidence-calibrator";
+import { createReportVersion } from "@/lib/report-versions";
 
 const ENABLE_CROSS_VALIDATION = process.env.ENABLE_CROSS_VALIDATION !== "false";
 const CROSS_VALIDATION_TIER = parseInt(process.env.CROSS_VALIDATION_TIER ?? "2", 10);
@@ -105,7 +106,20 @@ export const runComplianceCheck = inngest.createFunction(
       return `\n\nENGINEERING CERTIFICATIONS ON FILE:\n${lines.join("\n")}`;
     });
 
-    const fullContext = projectContext + certContext;
+    // 4c. Load selected construction systems
+    const systemsContext = await step.run("load-selected-systems", async () => {
+      const admin = createAdminClient();
+      const { data } = await admin
+        .from("projects")
+        .select("selected_systems")
+        .eq("id", projectId)
+        .single();
+      const systems = (data as { selected_systems: string[] | null } | null)?.selected_systems;
+      if (!Array.isArray(systems) || systems.length === 0) return "";
+      return `\n\nSELECTED CONSTRUCTION SYSTEMS:\nThe project uses the following MMC systems: ${systems.join(", ")}.\nFocus compliance analysis on NCC clauses relevant to these construction methods (e.g. fire rating for CLT, bracing for steel frame).`;
+    });
+
+    const fullContext = projectContext + certContext + systemsContext;
 
     // 5. Determine which categories to analyse
     const categoriesToAnalyse = await step.run("select-categories", async () => {
@@ -252,6 +266,28 @@ export const runComplianceCheck = inngest.createFunction(
           progress_current: null,
         } as never)
         .eq("id", check.id);
+    });
+
+    // 11. Save report version
+    await step.run("save-report-version", async () => {
+      const admin = createAdminClient();
+      const { data: findings } = await admin
+        .from("compliance_findings")
+        .select("*")
+        .eq("check_id", check.id)
+        .order("sort_order", { ascending: true });
+
+      await createReportVersion({
+        projectId,
+        orgId: check.org_id,
+        module: "comply",
+        sourceId: check.id,
+        reportData: {
+          summary: summary.summary,
+          overall_risk: summary.overall_risk,
+          findings: findings ?? [],
+        },
+      });
     });
 
     return {

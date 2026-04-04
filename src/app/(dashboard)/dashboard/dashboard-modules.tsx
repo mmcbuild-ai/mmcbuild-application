@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import {
   ShieldCheck,
@@ -12,6 +13,8 @@ import {
   ArrowRight,
   Sparkles,
   Clock,
+  Plus,
+  Rocket,
 } from "lucide-react";
 import { MODULES, type ModuleId } from "@/lib/stripe/plans";
 import type { SubscriptionStatus } from "@/lib/stripe/subscription";
@@ -40,9 +43,32 @@ const MODULE_BG_ACTIVE: Record<ModuleId, string> = {
   train: "border-indigo-200 bg-indigo-50/50",
 };
 
-export function DashboardModules({ status }: { status: SubscriptionStatus }) {
+const MODULE_SEQUENCE: Record<ModuleId, number> = {
+  build: 1,
+  comply: 2,
+  quote: 3,
+  direct: 4,
+  train: 5,
+};
+
+const WORKFLOW_STEPS = [
+  { num: 1, label: "Build", desc: "Design optimisation", color: "teal" },
+  { num: 2, label: "Comply", desc: "NCC compliance check", color: "blue" },
+  { num: 3, label: "Quote", desc: "Cost estimation", color: "violet" },
+  { num: 4, label: "Directory", desc: "Find MMC trades", color: "amber" },
+  { num: 5, label: "Training", desc: "Upskill your team", color: "indigo" },
+];
+
+export function DashboardModules({
+  status,
+  hasProjects,
+}: {
+  status: SubscriptionStatus;
+  hasProjects: boolean;
+}) {
   const isTrial = status.tier === "trial";
   const isExpired = status.tier === "expired";
+  const [showGate, setShowGate] = useState(false);
 
   return (
     <div className="space-y-8">
@@ -53,6 +79,79 @@ export function DashboardModules({ status }: { status: SubscriptionStatus }) {
           Your MMC Build modules and subscription status
         </p>
       </div>
+
+      {/* Onboarding — first-login with no projects */}
+      {!hasProjects && (
+        <div className="rounded-xl border-2 border-dashed border-teal-300 bg-gradient-to-br from-teal-50 to-blue-50 p-6">
+          <div className="flex items-start gap-4">
+            <div className="rounded-full bg-teal-100 p-3">
+              <Rocket className="h-6 w-6 text-teal-600" />
+            </div>
+            <div className="flex-1">
+              <h2 className="text-lg font-semibold text-teal-900">
+                Welcome to MMC Build
+              </h2>
+              <p className="text-sm text-teal-700 mt-1">
+                Get started by creating your first project. The platform guides you through a 5-step workflow:
+              </p>
+
+              {/* Workflow sequence */}
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                {WORKFLOW_STEPS.map((step, i) => (
+                  <div key={step.num} className="flex items-center gap-2">
+                    {i > 0 && (
+                      <ArrowRight className="h-3.5 w-3.5 text-teal-400" />
+                    )}
+                    <div className="flex items-center gap-1.5 rounded-full border border-teal-200 bg-white/80 px-3 py-1">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-teal-600 text-[10px] font-bold text-white">
+                        {step.num}
+                      </span>
+                      <span className="text-xs font-medium text-teal-800">
+                        {step.label}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <Link
+                href="/projects"
+                className="mt-4 inline-flex items-center gap-2 rounded-lg bg-teal-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-teal-700 transition-colors"
+              >
+                <Plus className="h-4 w-4" />
+                Create Your First Project
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* No-project gate dialog */}
+      {showGate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="rounded-xl bg-white p-6 shadow-xl max-w-sm mx-4">
+            <h3 className="text-lg font-semibold">Create a project first</h3>
+            <p className="text-sm text-muted-foreground mt-2">
+              You need at least one project to use modules. Projects are where your plans, reports, and estimates live.
+            </p>
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => setShowGate(false)}
+                className="rounded-lg border px-4 py-2 text-sm font-medium hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <Link
+                href="/projects"
+                className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700"
+                onClick={() => setShowGate(false)}
+              >
+                Go to Projects
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Trial / Status Banner */}
       {isTrial && status.daysRemaining !== null && (
@@ -153,11 +252,16 @@ export function DashboardModules({ status }: { status: SubscriptionStatus }) {
                 )}
               </div>
 
-              {/* Icon */}
-              <div
-                className={`inline-flex rounded-xl bg-gradient-to-br ${gradient} p-3 mb-4`}
-              >
-                <Icon className="h-6 w-6 text-white" />
+              {/* Icon with sequence number */}
+              <div className="flex items-center gap-3 mb-4">
+                <div
+                  className={`inline-flex rounded-xl bg-gradient-to-br ${gradient} p-3`}
+                >
+                  <Icon className="h-6 w-6 text-white" />
+                </div>
+                <span className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-slate-300 text-xs font-bold text-slate-500">
+                  {MODULE_SEQUENCE[moduleId]}
+                </span>
               </div>
 
               {/* Content */}
@@ -185,13 +289,23 @@ export function DashboardModules({ status }: { status: SubscriptionStatus }) {
               {/* Action */}
               <div className="mt-5">
                 {isActive ? (
-                  <Link
-                    href={mod.href}
-                    className={`inline-flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r ${gradient} px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 transition-opacity`}
-                  >
-                    Open {mod.name.replace("MMC ", "")}
-                    <ArrowRight className="h-3.5 w-3.5" />
-                  </Link>
+                  hasProjects ? (
+                    <Link
+                      href={mod.href}
+                      className={`inline-flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r ${gradient} px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 transition-opacity`}
+                    >
+                      Open {mod.name.replace("MMC ", "")}
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </Link>
+                  ) : (
+                    <button
+                      onClick={() => setShowGate(true)}
+                      className={`inline-flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r ${gradient} px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 transition-opacity`}
+                    >
+                      Open {mod.name.replace("MMC ", "")}
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </button>
+                  )
                 ) : (
                   <Link
                     href="/billing"

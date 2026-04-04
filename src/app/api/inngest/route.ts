@@ -15,10 +15,11 @@ import { sendReviewNotification } from "@/lib/inngest/functions/send-review-noti
 import { generateTrainingContent } from "@/lib/inngest/functions/generate-training-content";
 import { issueTrainingCertificate } from "@/lib/inngest/functions/issue-training-certificate";
 import { syncStripeSubscription } from "@/lib/inngest/functions/sync-stripe-subscription";
+import { syncHubspotListing } from "@/lib/inngest/functions/sync-hubspot-listing";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [testFunction, processPlan, runComplianceCheck, processKbDocument, classifyRdCommit, processCertification, sendRemediationEmail, runDesignOptimisation, runCostEstimation, ingestCostRates, sendEnquiryNotification, sendReviewNotification, generateTrainingContent, issueTrainingCertificate, syncStripeSubscription],
+  functions: [testFunction, processPlan, runComplianceCheck, processKbDocument, classifyRdCommit, processCertification, sendRemediationEmail, runDesignOptimisation, runCostEstimation, ingestCostRates, sendEnquiryNotification, sendReviewNotification, generateTrainingContent, issueTrainingCertificate, syncStripeSubscription, syncHubspotListing],
   // Force Inngest to call back to the production URL instead of the
   // deployment-specific URL which is behind Vercel Deployment Protection.
   serveHost: process.env.NEXT_PUBLIC_APP_URL || undefined,
