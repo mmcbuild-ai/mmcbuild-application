@@ -4,23 +4,48 @@
  * Bridges MMC Build's callModel() interface with Platform Trust's
  * @platform-trust/security-gate CaMeL pipeline.
  *
- * Usage:
- *   const gate = createMMCSecurityGate({ orgId, checkId, agentId })
- *   const result = await gate.wrap({ trustedInput, untrustedInput, ... })
+ * Uses dynamic import so the build succeeds even when the
+ * @platform-trust/security-gate package isn't available (e.g. Vercel).
+ * The gate is only loaded at runtime when ENABLE_SECURITY_GATE=true.
  */
 
-import {
-  createSecurityGate,
-  type SecurityGate,
-  type SecurityGateConfig,
-  type ModelCallFn,
-  type PolicyLevel,
-  type ToolCall as GateToolCall,
-  type ToolResult as GateToolResult,
-} from "@platform-trust/security-gate";
 import { callModel } from "@/lib/ai/models";
 import type { AIFunction } from "@/lib/ai/models/registry";
 import type { ToolDefinition, ToolUseBlock } from "@/lib/ai/models/call";
+
+// ---------------------------------------------------------------------------
+// Types — structural definitions matching @platform-trust/security-gate
+// so consumers don't need the package at compile time.
+// ---------------------------------------------------------------------------
+
+export interface SecurityViolation {
+  toolCall: { name: string };
+  taintedFields: string[];
+  action: string;
+}
+
+export interface SecurityGateResult {
+  text: string;
+  toolCalls?: { id: string; name: string; input: unknown }[];
+  usage?: { inputTokens: number; outputTokens: number };
+  blocked?: boolean;
+  reason?: string;
+  violations: SecurityViolation[];
+  killed: boolean;
+}
+
+export interface SecurityGateWrapOpts {
+  trustedInput: string;
+  untrustedInput: string;
+  systemPrompt?: string;
+  extractionPrompt?: string;
+  tools?: unknown[];
+  maxTokens?: number;
+}
+
+export interface SecurityGate {
+  wrap(opts: SecurityGateWrapOpts): Promise<SecurityGateResult>;
+}
 
 // ---------------------------------------------------------------------------
 // Platform Trust Supabase client (optional — for logging)
@@ -48,20 +73,41 @@ async function getTrustClient() {
 }
 
 // ---------------------------------------------------------------------------
+// Dynamic loader for @platform-trust/security-gate
+// ---------------------------------------------------------------------------
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function loadSecurityGateModule(): Promise<any> {
+  try {
+    // Dynamic import — only resolved at runtime, not at build time
+    const mod = await (Function(
+      'return import("@platform-trust/security-gate")'
+    )() as Promise<{ createSecurityGate: (...args: unknown[]) => SecurityGate }>);
+    return mod;
+  } catch {
+    throw new Error(
+      "[security-gate] @platform-trust/security-gate is not available. " +
+        "Set ENABLE_SECURITY_GATE=false or install the package."
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Adapter: MMC Build callModel → Security Gate ModelCallFn
 // ---------------------------------------------------------------------------
 
-/**
- * Wrap MMC Build's callModel() to match the security gate's ModelCallFn interface.
- */
-function adaptCallModel(aiFunction: AIFunction): ModelCallFn {
-  return async (opts) => {
+function adaptCallModel(aiFunction: AIFunction) {
+  return async (opts: {
+    system?: string;
+    messages?: { role: string; content: string }[];
+    tools?: unknown[];
+    maxTokens?: number;
+  }) => {
     const messages = opts.messages?.map((m) => ({
       role: m.role as "user" | "assistant",
       content: m.content,
     }));
 
-    // Convert gate tool definitions to MMC Build's format (they're the same shape)
     const tools = opts.tools as ToolDefinition[] | undefined;
 
     const result = await callModel(aiFunction, {
@@ -92,20 +138,17 @@ type MMCToolExecutor = (
   context: Record<string, unknown>
 ) => Promise<string>;
 
-/**
- * Wrap MMC Build's tool executor to match the security gate's interface.
- */
 function adaptToolExecutor(
   executor: MMCToolExecutor,
   context: Record<string, unknown>
-): (toolCall: GateToolCall) => Promise<GateToolResult> {
-  return async (toolCall) => {
+) {
+  return async (toolCall: { id: string; name: string; input: unknown }) => {
     try {
       const mmcToolCall: ToolUseBlock = {
         type: "tool_use",
         id: toolCall.id,
         name: toolCall.name,
-        input: toolCall.input,
+        input: toolCall.input as Record<string, unknown>,
       };
 
       const output = await executor(mmcToolCall, context);
@@ -125,45 +168,30 @@ function adaptToolExecutor(
 // ---------------------------------------------------------------------------
 
 export interface MMCSecurityGateConfig {
-  /** MMC Build org ID */
   orgId: string;
-  /** Compliance check or quote ID */
   checkId: string;
-  /** Agent identifier (e.g. "compliance-agent", "cost-agent") */
   agentId: string;
-  /** AI function for quarantine (cheap model, no tools). Defaults to "summary" (Sonnet) */
   quarantineFunction?: AIFunction;
-  /** AI function for planner (powerful model, with tools). Defaults to the function-specific one */
   plannerFunction: AIFunction;
-  /** Policy level. Defaults to "strict" */
-  policyLevel?: PolicyLevel;
-  /** MMC Build tool executor function */
+  policyLevel?: "strict" | "moderate" | "permissive";
   executeToolCall?: MMCToolExecutor;
-  /** Additional context passed to tool executor */
   toolContext?: Record<string, unknown>;
 }
 
 const MMC_BUILD_PROJECT_ID =
   process.env.PLATFORM_TRUST_PROJECT_ID ?? "mmc-build";
 
-/**
- * Create a security gate instance configured for MMC Build.
- *
- * Handles:
- * - Adapting callModel() to the gate's ModelCallFn interface
- * - Connecting to Platform Trust Supabase for logging
- * - Wrapping the tool executor
- */
 export async function createMMCSecurityGate(
   config: MMCSecurityGateConfig
 ): Promise<SecurityGate> {
+  const mod = await loadSecurityGateModule();
   const trustClient = await getTrustClient();
 
-  const gateConfig: SecurityGateConfig = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const gateConfig: Record<string, any> = {
     projectId: MMC_BUILD_PROJECT_ID,
     agentId: config.agentId,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    supabase: (trustClient ?? undefined) as any,
+    supabase: trustClient ?? undefined,
     quarantineModel: adaptCallModel(config.quarantineFunction ?? "summary"),
     plannerModel: adaptCallModel(config.plannerFunction),
     policy: { level: config.policyLevel ?? "strict" },
@@ -175,11 +203,11 @@ export async function createMMCSecurityGate(
       config.toolContext ?? {
         orgId: config.orgId,
         checkId: config.checkId,
-      }
+      },
     );
   }
 
-  return createSecurityGate(gateConfig);
+  return mod.createSecurityGate(gateConfig) as SecurityGate;
 }
 
 /**

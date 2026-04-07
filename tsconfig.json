@@ -19,9 +19,7 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"],
-      "@platform-trust/security-gate": ["../platform-trust/packages/security-gate/index.ts"],
-      "@platform-trust/security-gate/*": ["../platform-trust/packages/security-gate/*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": [
