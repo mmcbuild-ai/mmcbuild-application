@@ -1,6 +1,9 @@
 /**
  * Compliance Agent — agentic analysis using Claude's tool_use for dynamic
  * context retrieval, cross-category awareness, and iterative deepening.
+ *
+ * When ENABLE_SECURITY_GATE=true, routes through the CaMeL security pipeline
+ * which splits untrusted PDF content from the privileged tool-calling LLM.
  */
 
 import { callModel, type ToolDefinition, type ToolUseBlock } from "@/lib/ai/models";
@@ -8,6 +11,10 @@ import { COMPLIANCE_SYSTEM_PROMPT } from "@/lib/ai/prompts/compliance-system";
 import { SECTION_ANALYSIS_TEMPLATE } from "@/lib/ai/prompts/compliance-section";
 import { extractJson } from "@/lib/ai/extract-json";
 import type { ComplianceSectionResult, NccCategory } from "@/lib/ai/types";
+import {
+  createMMCSecurityGate,
+  isSecurityGateEnabled,
+} from "@/lib/ai/security/gate-adapter";
 
 import {
   lookupNccClauseDef,
@@ -54,8 +61,127 @@ interface AgentResult {
  * Run agentic analysis for a single category.
  * The agent can use tools to look up NCC clauses, access prior findings,
  * retrieve additional context, and flag cross-category dependencies.
+ *
+ * When ENABLE_SECURITY_GATE=true, routes through the CaMeL pipeline:
+ * - planContent (untrusted PDF) → quarantined LLM (no tools, extraction only)
+ * - User query + extracted data → privileged LLM (tools, policy-gated)
  */
 export async function runAgentAnalysis(
+  category: NccCategory,
+  planContent: string,
+  projectContext: string,
+  nccContext: string,
+  agentContext: AgentContext
+): Promise<AgentResult> {
+  // Route through security gate if enabled
+  if (isSecurityGateEnabled()) {
+    return runSecureAgentAnalysis(
+      category,
+      planContent,
+      projectContext,
+      nccContext,
+      agentContext
+    );
+  }
+
+  return runDirectAgentAnalysis(
+    category,
+    planContent,
+    projectContext,
+    nccContext,
+    agentContext
+  );
+}
+
+/**
+ * Secure path — CaMeL pipeline via @platform-trust/security-gate.
+ * Untrusted PDF content is quarantined and never reaches the tool-calling LLM.
+ */
+async function runSecureAgentAnalysis(
+  category: NccCategory,
+  planContent: string,
+  projectContext: string,
+  nccContext: string,
+  agentContext: AgentContext
+): Promise<AgentResult> {
+  const dependencies: CrossCategoryDependency[] = [];
+
+  const gate = await createMMCSecurityGate({
+    orgId: agentContext.orgId,
+    checkId: agentContext.checkId,
+    agentId: `compliance-${category}`,
+    quarantineFunction: "summary", // Sonnet for extraction (cheap, no tools)
+    plannerFunction: "compliance_primary", // Sonnet for analysis (tools enabled)
+    policyLevel: "strict",
+    executeToolCall: (tc) =>
+      executeToolCall(tc, { ...agentContext, dependencies }),
+    toolContext: {
+      orgId: agentContext.orgId,
+      checkId: agentContext.checkId,
+      priorResults: agentContext.priorResults,
+      dependencies,
+    },
+  });
+
+  const sectionPrompt = SECTION_ANALYSIS_TEMPLATE(
+    category,
+    planContent,
+    projectContext,
+    nccContext
+  );
+
+  const result = await gate.wrap({
+    // Trusted: user's category selection + project context + NCC reference docs
+    trustedInput: `Perform a detailed NCC compliance analysis for the "${category}" category.\n\n${sectionPrompt}`,
+    // Untrusted: the uploaded PDF content
+    untrustedInput: planContent,
+    systemPrompt: COMPLIANCE_SYSTEM_PROMPT,
+    extractionPrompt: `Extract all building specifications, measurements, materials, construction methods, and technical details from this building plan document. Include:
+- Building dimensions and layout
+- Structural elements and materials
+- Fire safety features mentioned
+- Energy efficiency specifications
+- Waterproofing and weatherproofing details
+- Any compliance-related certifications or references
+Return structured factual data only. Do not interpret compliance status.`,
+    tools: AGENT_TOOLS,
+    maxTokens: 4096,
+  });
+
+  // Log security events if any violations occurred
+  if (result.violations.length > 0) {
+    console.warn(
+      `[SecurityGate] ${category}: ${result.violations.length} policy violations detected`,
+      result.violations.map((v: { toolCall: { name: string }; taintedFields: string[]; action: string }) => ({
+        tool: v.toolCall.name,
+        tainted: v.taintedFields,
+        action: v.action,
+      }))
+    );
+  }
+
+  if (result.killed) {
+    console.error(
+      `[SecurityGate] ${category}: Session was terminated by kill switch`
+    );
+    throw new Error(
+      `Security gate terminated compliance analysis for ${category}: ${result.text}`
+    );
+  }
+
+  const parsed = extractJson<ComplianceSectionResult>(result.text);
+  return {
+    result: parsed,
+    dependencies,
+    iterations: 1, // gate handles iterations internally
+  };
+}
+
+/**
+ * Direct path — original implementation without security gate.
+ * Used when ENABLE_SECURITY_GATE is not set.
+ */
+async function runDirectAgentAnalysis(
   category: NccCategory,
   planContent: string,
   projectContext: string,

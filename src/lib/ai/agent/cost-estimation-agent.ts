@@ -2,6 +2,9 @@
  * Cost Estimation Agent — agentic analysis using Claude's tool_use for
  * rate lookups, quantity extraction, cross-category cost awareness,
  * and MMC alternative pricing via the Build module.
+ *
+ * When ENABLE_SECURITY_GATE=true, routes through the CaMeL security pipeline
+ * which splits untrusted PDF content from the privileged tool-calling LLM.
  */
 
 import { callModel, type ToolDefinition, type ToolUseBlock } from "@/lib/ai/models";
@@ -12,6 +15,10 @@ import {
 import { extractJson } from "@/lib/ai/extract-json";
 import type { CostCategoryResult, CostCategory } from "@/lib/ai/types";
 import { getCostCategoryLabel } from "@/lib/ai/types";
+import {
+  createMMCSecurityGate,
+  isSecurityGateEnabled,
+} from "@/lib/ai/security/gate-adapter";
 
 import {
   extractQuantitiesDef,
@@ -69,8 +76,103 @@ interface CostAgentResult {
 
 /**
  * Run agentic cost estimation for a single category.
+ *
+ * When ENABLE_SECURITY_GATE=true, routes through the CaMeL pipeline:
+ * - planContent (untrusted PDF) → quarantined LLM (no tools, extraction only)
+ * - User query + extracted data → privileged LLM (tools, policy-gated)
  */
 export async function runCostAgent(
+  category: CostCategory,
+  planContent: string,
+  projectContext: string,
+  agentContext: CostAgentContext
+): Promise<CostAgentResult> {
+  if (isSecurityGateEnabled()) {
+    return runSecureCostAgent(category, planContent, projectContext, agentContext);
+  }
+  return runDirectCostAgent(category, planContent, projectContext, agentContext);
+}
+
+/**
+ * Secure path — CaMeL pipeline via @platform-trust/security-gate.
+ */
+async function runSecureCostAgent(
+  category: CostCategory,
+  planContent: string,
+  projectContext: string,
+  agentContext: CostAgentContext
+): Promise<CostAgentResult> {
+  const dependencies: CostDependency[] = [];
+  const categoryLabel = getCostCategoryLabel(category);
+
+  const gate = await createMMCSecurityGate({
+    orgId: agentContext.orgId,
+    checkId: agentContext.estimateId,
+    agentId: `cost-${category}`,
+    quarantineFunction: "summary",
+    plannerFunction: "cost_primary",
+    policyLevel: "strict",
+    executeToolCall: (tc) =>
+      executeCostToolCall(tc, { ...agentContext, dependencies }),
+    toolContext: {
+      orgId: agentContext.orgId,
+      estimateId: agentContext.estimateId,
+      projectId: agentContext.projectId,
+      planId: agentContext.planId,
+      priorResults: agentContext.priorResults,
+      dependencies,
+    },
+  });
+
+  const categoryPrompt = COST_CATEGORY_PROMPT(
+    category,
+    categoryLabel,
+    planContent,
+    projectContext
+  );
+
+  const result = await gate.wrap({
+    trustedInput: `Perform a detailed cost estimate for the "${categoryLabel}" category of an Australian residential building project.\n\n${categoryPrompt}`,
+    untrustedInput: planContent,
+    systemPrompt: COST_ESTIMATION_SYSTEM_PROMPT,
+    extractionPrompt: `Extract all construction quantities, dimensions, materials, specifications, and measurable elements from this building plan document. Include:
+- Floor areas and room dimensions
+- Structural quantities (concrete volumes, steel tonnage, timber lengths)
+- Material specifications (type, grade, finish)
+- Fixture and fitting counts
+- Services runs (electrical, plumbing, HVAC)
+- Site works quantities
+Return structured factual data only. Do not estimate costs.`,
+    tools: AGENT_TOOLS,
+    maxTokens: 4096,
+  });
+
+  if (result.violations.length > 0) {
+    console.warn(
+      `[SecurityGate] cost-${category}: ${result.violations.length} policy violations`,
+      result.violations.map((v: { toolCall: { name: string }; taintedFields: string[]; action: string }) => ({
+        tool: v.toolCall.name,
+        tainted: v.taintedFields,
+        action: v.action,
+      }))
+    );
+  }
+
+  if (result.killed) {
+    console.error(`[SecurityGate] cost-${category}: Session terminated`);
+    throw new Error(
+      `Security gate terminated cost estimation for ${category}: ${result.text}`
+    );
+  }
+
+  const parsed = safeExtractResult(result.text, category);
+  return { result: parsed, dependencies, iterations: 1 };
+}
+
+/**
+ * Direct path — original implementation without security gate.
+ */
+async function runDirectCostAgent(
   category: CostCategory,
   planContent: string,
   projectContext: string,
