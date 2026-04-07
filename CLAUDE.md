@@ -8,6 +8,7 @@ AI-powered compliance and construction intelligence platform for Australian resi
 - **Database**: Supabase (PostgreSQL + pgvector + Auth + Storage + RLS) — Sydney region
 - **Jobs**: Inngest (async AI pipelines, cron)
 - **AI**: Anthropic Claude (primary), OpenAI (embeddings)
+- **Email**: Resend (transactional)
 - **Payments**: Stripe (test mode for MVP)
 - **Deployment**: Vercel
 
@@ -38,13 +39,13 @@ AI-powered compliance and construction intelligence platform for Australian resi
 6. Billing — Stripe subscriptions (Stage 7)
 
 ## Current Status
-- Stage 0: Foundation scaffold — COMPLETE
-- Stage 1-2: MMC Comply — COMPLETE (AI compliance, RAG, cross-validation, agentic workflow)
-- Stage 3: MMC Build — COMPLETE (design optimisation, 3D viewer)
-- Stage 4: MMC Quote — COMPLETE (agentic cost estimation)
-- Stage 5: MMC Direct — COMPLETE (trade directory)
-- Stage 6: MMC Train — COMPLETE (LMS, AI content generation)
-- Stage 7: Billing — IN PROGRESS (Stripe subscriptions, paywall, usage metering)
+- MMC Comply — LIVE (NCC compliance AI + RAG pipeline)
+- MMC Build — PARTIAL (core live — material/system selection panel pending)
+- MMC Quote — LIVE (agentic cost estimation, supplier knowledge base)
+- MMC Direct — LIVE (trade/consultant directory)
+- MMC Train — LIVE (self-paced modules + progress tracking)
+- Billing — LIVE (Stripe test mode, 60-day free trial)
+- Current sprint: **v0.4.0** — see `.context/PROJECT_STATE.md` for details
 
 ## Testing
 - Framework: Vitest

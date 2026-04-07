@@ -1,0 +1,20 @@
+# MMC Build — Code Ownership
+#
+# Dennis owns everything by default.
+# Karen and Karthik can only edit their own feedback files.
+#
+# NOTE: Update GitHub usernames for Karen and Karthik once confirmed.
+
+# Default: Dennis owns all code
+* @dennissolver
+
+# Karen can edit her feedback files
+/feedback/karen/ @dennissolver
+# TODO: add Karen's GitHub username when confirmed — e.g. @karen-mmcbuild
+
+# Karthik can edit his feedback files
+/feedback/karthik/ @dennissolver
+# TODO: add Karthik's GitHub username when confirmed — e.g. @karthik-mmcbuild
+
+# Dennis owns project context — no one else touches these
+/.context/ @dennissolver
