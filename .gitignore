@@ -57,3 +57,4 @@ pnpm-debug.log*
 
 CLAUDE.local.md
 .env*.local
+.gstack/
