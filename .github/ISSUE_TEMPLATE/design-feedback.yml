@@ -1,0 +1,74 @@
+name: "Design Feedback (Karen)"
+description: "Submit a design change, UI issue, or brand feedback item"
+title: "[Design] "
+labels: ["design", "feedback", "pending-review"]
+assignees:
+  - dennissolver
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Design Feedback
+        Use this form to request a design change, flag a UI issue, or provide brand feedback.
+        Dennis will review and label this issue **accept**, **reject**, or **defer**.
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: Which module?
+      options:
+        - MMC Comply
+        - MMC Build
+        - MMC Quote
+        - MMC Direct
+        - MMC Train
+        - Billing
+        - Dashboard
+        - Navigation / Layout
+        - All modules
+    validations:
+      required: true
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Type of feedback
+      options:
+        - Colour / branding change
+        - Typography / font change
+        - Layout / spacing issue
+        - New component or element
+        - Remove or change existing element
+        - Figma mockup delivery
+        - General design feedback
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What needs to change?
+      description: "Describe the change you want. Be as specific as possible."
+      placeholder: "e.g. The heading font on the Comply page should be Inter Bold, not the current font. See Figma link below."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reference
+    attributes:
+      label: Reference (Figma link, screenshot, or example)
+      description: "Paste a Figma link, screenshot, or URL showing what you want. You can drag and drop images here."
+      placeholder: "Paste Figma link or drag an image here"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: How urgent is this?
+      options:
+        - Blocker — cannot proceed without this
+        - Important — should be in this sprint
+        - Nice to have — can wait
+    validations:
+      required: true

@@ -1,0 +1,97 @@
+name: "QA Report (Karthik)"
+description: "Report a bug, technical issue, or QA finding"
+title: "[QA] "
+labels: ["qa", "feedback", "pending-review"]
+assignees:
+  - dennissolver
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## QA Report
+        Use this form to report bugs, technical issues, or QA findings.
+        Dennis will review and label this issue **accept**, **reject**, or **defer**.
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: Which module?
+      options:
+        - MMC Comply
+        - MMC Build
+        - MMC Quote
+        - MMC Direct
+        - MMC Train
+        - Billing
+        - Dashboard
+        - Authentication / Login
+        - All modules
+    validations:
+      required: true
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Type of issue
+      options:
+        - Bug — something is broken
+        - Data issue — wrong or missing data
+        - Performance — slow or unresponsive
+        - Security concern
+        - UX issue — confusing or hard to use
+        - Missing feature — expected but not there
+        - Suggestion — improvement idea
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: "Describe the issue. Include what you expected vs what actually happened."
+      placeholder: "e.g. Clicked 'Run Compliance Check' but nothing happened. Expected to see a progress indicator."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: "How can Dennis reproduce this?"
+      placeholder: |
+        1. Go to MMC Comply
+        2. Upload a PDF plan
+        3. Click 'Run Compliance Check'
+        4. Nothing happens
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot or screen recording
+      description: "Drag and drop an image or paste a link. Hugely helpful for debugging."
+      placeholder: "Drag an image here or paste a URL"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: How bad is it?
+      options:
+        - Blocker — cannot use the platform
+        - Major — feature is broken but workaround exists
+        - Minor — cosmetic or low-impact
+        - Nice to have — suggestion, not a bug
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and device
+      description: "e.g. Chrome on MacBook, Safari on iPhone"
+      placeholder: "Chrome on Windows laptop"
+    validations:
+      required: false
