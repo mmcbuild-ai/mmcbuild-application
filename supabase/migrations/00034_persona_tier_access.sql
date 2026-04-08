@@ -27,16 +27,20 @@ CREATE TABLE IF NOT EXISTS usage_limits (
 
 ALTER TABLE usage_limits ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can view own usage" ON usage_limits;
 CREATE POLICY "Users can view own usage"
   ON usage_limits FOR SELECT USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update own usage" ON usage_limits;
 CREATE POLICY "Users can update own usage"
   ON usage_limits FOR UPDATE USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can insert own usage" ON usage_limits;
 CREATE POLICY "Users can insert own usage"
   ON usage_limits FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 -- Trigger for updated_at
+DROP TRIGGER IF EXISTS usage_limits_updated_at ON usage_limits;
 CREATE TRIGGER usage_limits_updated_at
   BEFORE UPDATE ON usage_limits
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
