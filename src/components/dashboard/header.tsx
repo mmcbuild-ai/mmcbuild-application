@@ -1,56 +1,55 @@
-import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+"use client";
+
+import { Menu, X } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 
-export async function DashboardHeader() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+export type DashboardHeaderProps = {
+  isSidebarOpen: boolean;
+  onToggleSidebar: () => void;
+  fullName: string | null;
+  role: string | null;
+  orgName: string;
+};
 
-  if (!user) {
-    return (
-      <header className="flex h-16 items-center justify-end border-b px-6">
-        <p className="text-sm text-muted-foreground">Not signed in</p>
-      </header>
-    );
-  }
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name, role, org_id")
-    .eq("user_id", user.id)
-    .single();
-
-  let orgName = "Organisation";
-  if (profile?.org_id) {
-    const admin = createAdminClient();
-    const { data: org } = await admin
-      .from("organisations")
-      .select("name")
-      .eq("id", profile.org_id)
-      .single();
-    if (org?.name) orgName = org.name;
-  }
-
+export function DashboardHeader({
+  isSidebarOpen,
+  onToggleSidebar,
+  fullName,
+  role,
+  orgName,
+}: DashboardHeaderProps) {
   const initials =
-    profile?.full_name
+    fullName
       ?.split(" ")
-      .map((n: string) => n[0])
+      .map((n) => n[0])
       .join("")
       .toUpperCase()
       .slice(0, 2) ?? "U";
 
   return (
-    <header className="flex h-16 items-center justify-between border-b px-6">
-      <div>
+    <header className="flex h-16 shrink-0 items-center justify-between border-b px-6">
+      <div className="flex items-center gap-3">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onToggleSidebar}
+          className="h-8 w-8"
+          aria-label={isSidebarOpen ? "Close sidebar" : "Open sidebar"}
+        >
+          {isSidebarOpen ? (
+            <X className="h-5 w-5" />
+          ) : (
+            <Menu className="h-5 w-5" />
+          )}
+        </Button>
         <p className="text-sm text-muted-foreground">{orgName}</p>
       </div>
       <div className="flex items-center gap-3">
         <div className="text-right">
-          <p className="text-sm font-medium">{profile?.full_name ?? "User"}</p>
+          <p className="text-sm font-medium">{fullName ?? "User"}</p>
           <p className="text-xs capitalize text-muted-foreground">
-            {profile?.role ?? "viewer"}
+            {role ?? "viewer"}
           </p>
         </div>
         <Avatar className="h-8 w-8">
