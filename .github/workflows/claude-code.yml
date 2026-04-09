@@ -61,8 +61,8 @@ jobs:
           CALLBACK_URL: ${{ inputs.callback_url }}
           ECC_API_KEY: ${{ secrets.EASY_CLAUDE_API_KEY }}
         run: |
-          HTTP_CODE=$(curl -s -o /tmp/session-context.md -w "%{http_code}" \\
-            -H "X-API-Key: $ECC_API_KEY" \\
+          HTTP_CODE=$(curl -s -o /tmp/session-context.md -w "%{http_code}" \
+            -H "X-API-Key: $ECC_API_KEY" \
             "$CALLBACK_URL/api/sessions/context?project_id=$PROJECT_ID")
           if [ "$HTTP_CODE" = "200" ] && [ -s /tmp/session-context.md ]; then
             echo "Session context fetched ($(wc -c < /tmp/session-context.md) bytes)"
@@ -89,10 +89,10 @@ jobs:
       - name: Notify started
         if: inputs.callback_url && inputs.command_id
         run: |
-          curl -s -X PATCH "${{ inputs.callback_url }}/api/dispatch/poll" \\
-            -H "Content-Type: application/json" \\
-            -H "X-API-Key: ${{ secrets.EASY_CLAUDE_API_KEY }}" \\
-            -d "{\\"command_id\\": \\"${{ inputs.command_id }}\\"}" \\
+          curl -s -X PATCH "${{ inputs.callback_url }}/api/dispatch/poll" \
+            -H "Content-Type: application/json" \
+            -H "X-API-Key: ${{ secrets.EASY_CLAUDE_API_KEY }}" \
+            -d "{\\"command_id\\": \\"${{ inputs.command_id }}\\"}" \
             || true
 
       - name: Write safety settings
@@ -116,11 +116,11 @@ jobs:
 
           DENY='["Bash(rm -rf /)", "Bash(rm -rf ~)", "Bash(rm -rf /*)", "Bash(rm -rf ~/*)", "Bash(git push --force origin main)", "Bash(git push --force origin master)", "Bash(git reset --hard)", "Read(.env)", "Read(.env.*)", "Read(**/.env)", "Read(**/.env.*)", "Read(**/.env.local)", "Read(**/credentials.json)", "Read(**/*secret*)"]'
 
-          jq -n \\
-            --arg mode "$MODE" \\
-            --argjson allow "$ALLOW" \\
-            --argjson deny "$DENY" \\
-            '{permissions: {defaultMode: $mode, allow: $allow, deny: $deny}}' \\
+          jq -n \
+            --arg mode "$MODE" \
+            --argjson allow "$ALLOW" \
+            --argjson deny "$DENY" \
+            '{permissions: {defaultMode: $mode, allow: $allow, deny: $deny}}' \
             > .claude/settings.json
 
           echo "Permission tier: $TIER (mode: $MODE)"
@@ -212,13 +212,13 @@ jobs:
           SUMMARY=$(printf '%s' "$CLAUDE_OUTPUT" | tail -c 4000)
           DIFF_SHORT=$(printf '%s' "$DIFF_STAT" | head -c 2000)
 
-          jq -n \\
-            --arg command_id "$COMMAND_ID" \\
-            --arg status "$STATUS" \\
-            --arg result_summary "$SUMMARY" \\
-            --arg commit_sha "$COMMIT_SHA" \\
-            --arg has_changes "$HAS_CHANGES" \\
-            --arg diff_stat "$DIFF_SHORT" \\
+          jq -n \
+            --arg command_id "$COMMAND_ID" \
+            --arg status "$STATUS" \
+            --arg result_summary "$SUMMARY" \
+            --arg commit_sha "$COMMIT_SHA" \
+            --arg has_changes "$HAS_CHANGES" \
+            --arg diff_stat "$DIFF_SHORT" \
             '{
               command_id: $command_id,
               status: $status,
@@ -228,8 +228,8 @@ jobs:
               diff_stat: $diff_stat
             }' > /tmp/payload.json
 
-          curl -s -X POST "$CALLBACK_URL/api/dispatch/complete" \\
-            -H "Content-Type: application/json" \\
-            -H "X-API-Key: $ECC_API_KEY" \\
-            -d @/tmp/payload.json \\
+          curl -s -X POST "$CALLBACK_URL/api/dispatch/complete" \
+            -H "Content-Type: application/json" \
+            -H "X-API-Key: $ECC_API_KEY" \
+            -d @/tmp/payload.json \
             || true
