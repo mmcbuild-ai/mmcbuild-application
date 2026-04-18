@@ -14,6 +14,9 @@ importers:
       '@caistech/platform-trust-middleware':
         specifier: ^0.2.0
         version: 0.2.0(next@16.1.6(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.59.1)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(typescript@5.9.3)
+      '@caistech/property-services-sdk':
+        specifier: ^0.1.0
+        version: 0.1.0(react@19.2.3)(typescript@5.9.3)
       '@hookform/resolvers':
         specifier: ^5.2.2
         version: 5.2.2(react-hook-form@7.71.2(react@19.2.3))
@@ -319,6 +322,15 @@ packages:
     resolution: {integrity: sha512-V1ZUeJAaeSw//WX9iBBuCZWkqh/qBUXd2Ts7/CLpQyRJdPvJvV9IzXaut3pQxFTTwyZ6r/8iN85FDcbp94hqSg==, tarball: https://npm.pkg.github.com/download/@caistech/platform-trust-middleware/0.2.0/8ee27c8c604946009edea5cf52b814cd85019a3f}
     peerDependencies:
       next: '>=14.0.0'
+      typescript: '>=5.0.0'
+    peerDependenciesMeta:
+      next:
+        optional: true
+
+  '@caistech/property-services-sdk@0.1.0':
+    resolution: {integrity: sha512-xK5PZe09NyQTVHvU+M7yy/xlLb2+RxaUFwFaF0ac8Femu3TK9xl+rknihLOFVzX7k04AFqpUzEESuQ8TWgroqw==, tarball: https://npm.pkg.github.com/download/@caistech/property-services-sdk/0.1.0/e89f2ca2e3dcc26aeb8cc4de26993a34b9e6fbf1}
+    peerDependencies:
+      react: ^18.0.0 || ^19.0.0
       typescript: '>=5.0.0'
 
   '@dimforge/rapier3d-compat@0.12.0':
@@ -6085,11 +6097,17 @@ snapshots:
   '@caistech/platform-trust-middleware@0.2.0(next@16.1.6(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.59.1)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(typescript@5.9.3)':
     dependencies:
       '@supabase/supabase-js': 2.98.0
-      next: 16.1.6(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.59.1)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       typescript: 5.9.3
+    optionalDependencies:
+      next: 16.1.6(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.59.1)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
+
+  '@caistech/property-services-sdk@0.1.0(react@19.2.3)(typescript@5.9.3)':
+    dependencies:
+      react: 19.2.3
+      typescript: 5.9.3
 
   '@dimforge/rapier3d-compat@0.12.0': {}
 

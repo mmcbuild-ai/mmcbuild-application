@@ -1,31 +1,12 @@
 /**
- * @gbta/property-services SDK
+ * Property Services SDK — re-export shim.
  *
- * Shared property intelligence for F2K-Checkpoint, DealFindrs, MMC Build.
+ * Previously a hand-copied fork of the SDK. Now lives in the published
+ * @caistech/property-services-sdk package. Import sites like
+ *   import { PropertyAssessment, usePropertyOnboarding } from '@/lib/property-services'
+ * keep working unchanged.
+ *
+ * See @caistech/property-services-sdk v0.1.0 for source.
  */
 
-// Types
-export type {
-  PropertyProfile,
-  NormalisedAddress,
-  LotInfo,
-  ZoningInfo,
-  EnvironmentInfo,
-  PlanningOverlay,
-  SubdivisionAnalysis,
-  ProfileMetadata,
-  SuitabilityAssessment,
-  DeriveResponse,
-  AssessResponse,
-} from './types'
-
-// Client
-export { PropertyServicesClient } from './client'
-export type { PropertyServicesConfig } from './client'
-
-// React hook
-export { usePropertyOnboarding } from './usePropertyOnboarding'
-export type { UsePropertyOnboardingReturn, OnboardingStage } from './usePropertyOnboarding'
-
-// Components
-export { PropertyAssessment } from './PropertyAssessment'
+export * from '@caistech/property-services-sdk';
