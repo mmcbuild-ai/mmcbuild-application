@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { deriveSiteIntel } from "@/lib/site-intel";
-import { getStaticMapUrl } from "@/lib/mapbox";
+import { getStaticMapUrl } from "@caistech/mapbox";
 import { inngest } from "@/lib/inngest/client";
 
 async function getProfile() {

@@ -18,7 +18,7 @@ import { createProject } from "@/app/(dashboard)/projects/actions";
 import { Plus, Loader2, AlertTriangle } from "lucide-react";
 import { AddressAutocomplete } from "@/components/common/address-autocomplete";
 import { usePropertyOnboarding, PropertyAssessment } from "@/lib/property-services";
-import type { GeocodedAddress } from "@/lib/mapbox-types";
+import type { GeocodedAddress } from "@caistech/mapbox";
 
 export function CreateProjectDialog({ defaultOpen = false }: { defaultOpen?: boolean } = {}) {
   const [open, setOpen] = useState(defaultOpen);
