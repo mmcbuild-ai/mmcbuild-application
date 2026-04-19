@@ -18,6 +18,20 @@ export default async function LandingPage() {
       <nav className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur-sm">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
           <span className="text-xl font-bold tracking-tight">MMC Build</span>
+          <div className="hidden md:flex items-center gap-8 text-sm">
+            <Link href="/about" className="text-muted-foreground hover:text-foreground transition-colors">
+              About
+            </Link>
+            <Link href="/blog" className="text-muted-foreground hover:text-foreground transition-colors">
+              Blog
+            </Link>
+            <Link href="/case-studies" className="text-muted-foreground hover:text-foreground transition-colors">
+              Case Studies
+            </Link>
+            <Link href="/contact" className="text-muted-foreground hover:text-foreground transition-colors">
+              Contact
+            </Link>
+          </div>
           <div className="flex items-center gap-4">
             <Link
               href="/login"
@@ -265,12 +279,18 @@ export default async function LandingPage() {
       <footer className="border-t py-8">
         <div className="mx-auto max-w-6xl px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
           <p>&copy; {new Date().getFullYear()} MMC Build Pty Ltd. All rights reserved.</p>
-          <div className="flex gap-6">
-            <Link href="/login" className="hover:text-foreground transition-colors">
-              Sign In
+          <div className="flex flex-wrap gap-6">
+            <Link href="/about" className="hover:text-foreground transition-colors">
+              About
             </Link>
-            <Link href="/signup" className="hover:text-foreground transition-colors">
-              Sign Up
+            <Link href="/contact" className="hover:text-foreground transition-colors">
+              Contact
+            </Link>
+            <Link href="/privacy" className="hover:text-foreground transition-colors">
+              Privacy
+            </Link>
+            <Link href="/terms" className="hover:text-foreground transition-colors">
+              Terms
             </Link>
           </div>
         </div>
