@@ -12,14 +12,14 @@ importers:
         specifier: ^0.78.0
         version: 0.78.0(zod@4.3.6)
       '@caistech/mapbox':
-        specifier: ^0.1.0
-        version: 0.1.0(typescript@5.9.3)
+        specifier: ^0.1.1
+        version: 0.1.1(typescript@5.9.3)
       '@caistech/platform-trust-middleware':
-        specifier: ^0.2.0
-        version: 0.2.0(next@16.1.6(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.59.1)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(typescript@5.9.3)
+        specifier: ^0.3.0
+        version: 0.3.0(next@16.1.6(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.59.1)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(typescript@5.9.3)
       '@caistech/property-services-sdk':
-        specifier: ^0.1.0
-        version: 0.1.0(react@19.2.3)(typescript@5.9.3)
+        specifier: ^0.2.0
+        version: 0.2.0(react@19.2.3)(typescript@5.9.3)
       '@hookform/resolvers':
         specifier: ^5.2.2
         version: 5.2.2(react-hook-form@7.71.2(react@19.2.3))
@@ -321,19 +321,19 @@ packages:
   '@bufbuild/protobuf@2.11.0':
     resolution: {integrity: sha512-sBXGT13cpmPR5BMgHE6UEEfEaShh5Ror6rfN3yEK5si7QVrtZg8LEPQb0VVhiLRUslD2yLnXtnRzG035J/mZXQ==}
 
-  '@caistech/mapbox@0.1.0':
-    resolution: {integrity: sha512-r45luXchz2FG2T+qvoMN+NiOESNFYNQZSGjKHLhCvYyRHJIPOSNTmu6+hk8EKaOEikE3hJWdFlyD9CAg2O5jeQ==, tarball: https://npm.pkg.github.com/download/@caistech/mapbox/0.1.0/b563b1d6b0247df8a063af1cba6a5a11225afcb6}
+  '@caistech/mapbox@0.1.1':
+    resolution: {integrity: sha512-kXTDqo2K1p5+gl1KDj9GFw4Xp1R68rLf7l6XLBKGKB5B6fBmR9QfwWVDh+80vm+kryG0/7dM0TrZQkrLN//xzw==, tarball: https://npm.pkg.github.com/download/@caistech/mapbox/0.1.1/5bf88740daafba953bc4a684a94cf23e31c85272}
     peerDependencies:
       typescript: '>=5.0.0'
 
-  '@caistech/platform-trust-middleware@0.2.0':
-    resolution: {integrity: sha512-V1ZUeJAaeSw//WX9iBBuCZWkqh/qBUXd2Ts7/CLpQyRJdPvJvV9IzXaut3pQxFTTwyZ6r/8iN85FDcbp94hqSg==, tarball: https://npm.pkg.github.com/download/@caistech/platform-trust-middleware/0.2.0/8ee27c8c604946009edea5cf52b814cd85019a3f}
+  '@caistech/platform-trust-middleware@0.3.0':
+    resolution: {integrity: sha512-PUUucPUgnKBenhED/8ZjuH2Hm0bsjbybqBm+qCynCjh2eK2vP9VBQlYurlRbLjuRl2XhcdnJmxV8az41tkj9OA==, tarball: https://npm.pkg.github.com/download/@caistech/platform-trust-middleware/0.3.0/8b31d8e40f945f95418127eb07715a1def4f4047}
     peerDependencies:
       next: '>=14.0.0'
       typescript: '>=5.0.0'
 
-  '@caistech/property-services-sdk@0.1.0':
-    resolution: {integrity: sha512-xK5PZe09NyQTVHvU+M7yy/xlLb2+RxaUFwFaF0ac8Femu3TK9xl+rknihLOFVzX7k04AFqpUzEESuQ8TWgroqw==, tarball: https://npm.pkg.github.com/download/@caistech/property-services-sdk/0.1.0/e89f2ca2e3dcc26aeb8cc4de26993a34b9e6fbf1}
+  '@caistech/property-services-sdk@0.2.0':
+    resolution: {integrity: sha512-CFZDm2abCVsVvoNK72wYA2RnHIOAUdXtjNTdIM13GflXIQ6sudlCV4yQI/KsCgaWx4MSUhWc+f8NVadKdliv9w==, tarball: https://npm.pkg.github.com/download/@caistech/property-services-sdk/0.2.0/ad44c4c54f60fbf5d19fce27f00d522cf938753e}
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
       typescript: '>=5.0.0'
@@ -6099,11 +6099,11 @@ snapshots:
 
   '@bufbuild/protobuf@2.11.0': {}
 
-  '@caistech/mapbox@0.1.0(typescript@5.9.3)':
+  '@caistech/mapbox@0.1.1(typescript@5.9.3)':
     dependencies:
       typescript: 5.9.3
 
-  '@caistech/platform-trust-middleware@0.2.0(next@16.1.6(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.59.1)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(typescript@5.9.3)':
+  '@caistech/platform-trust-middleware@0.3.0(next@16.1.6(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.59.1)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(typescript@5.9.3)':
     dependencies:
       '@supabase/supabase-js': 2.98.0
       next: 16.1.6(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.59.1)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -6112,7 +6112,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@caistech/property-services-sdk@0.1.0(react@19.2.3)(typescript@5.9.3)':
+  '@caistech/property-services-sdk@0.2.0(react@19.2.3)(typescript@5.9.3)':
     dependencies:
       react: 19.2.3
       typescript: 5.9.3
