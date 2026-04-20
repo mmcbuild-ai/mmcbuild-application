@@ -10,7 +10,11 @@ let client: Anthropic | null = null;
 
 function getClient(): Anthropic {
   if (!client) {
-    client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+    const k = process.env.ANTHROPIC_API_KEY;
+    console.log(
+      `[Anthropic] init — keyPresent=${!!k} len=${k?.length ?? 0} last4=${k?.slice(-4) ?? "NONE"}`
+    );
+    client = new Anthropic({ apiKey: k! });
   }
   return client;
 }
