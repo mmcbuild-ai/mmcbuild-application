@@ -84,6 +84,8 @@ export async function callModel(
         provider: model.provider,
         inputTokens: result.usage.inputTokens,
         outputTokens: result.usage.outputTokens,
+        cacheCreationTokens: result.usage.cacheCreationTokens,
+        cacheReadTokens: result.usage.cacheReadTokens,
         estimatedCostUsd: estimateCost(model, result.usage.inputTokens, result.usage.outputTokens),
         latencyMs,
         wasFallback: isFallback,

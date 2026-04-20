@@ -12,6 +12,8 @@ export interface UsageRecord {
   provider: string;
   inputTokens: number;
   outputTokens: number;
+  cacheCreationTokens?: number;
+  cacheReadTokens?: number;
   estimatedCostUsd: number;
   latencyMs: number;
   wasFallback: boolean;
@@ -32,6 +34,8 @@ export async function trackUsage(record: UsageRecord): Promise<void> {
       provider: record.provider,
       input_tokens: record.inputTokens,
       output_tokens: record.outputTokens,
+      cache_creation_tokens: record.cacheCreationTokens ?? 0,
+      cache_read_tokens: record.cacheReadTokens ?? 0,
       estimated_cost_usd: record.estimatedCostUsd,
       latency_ms: record.latencyMs,
       was_fallback: record.wasFallback,
