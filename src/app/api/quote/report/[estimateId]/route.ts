@@ -1,13 +1,15 @@
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/lib/supabase/db";
 import { generateCostPdf } from "@/lib/quote/report-pdf";
+import { generateCostDocx } from "@/lib/quote/report-docx";
 import { NextResponse } from "next/server";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ estimateId: string }> }
 ) {
   const { estimateId } = await params;
+  const format = new URL(request.url).searchParams.get("format") === "docx" ? "docx" : "pdf";
 
   const supabase = await createClient();
   const {
@@ -53,7 +55,7 @@ export async function GET(
     .eq("estimate_id", estimateId)
     .order("sort_order", { ascending: true });
 
-  const pdfBytes = generateCostPdf({
+  const reportInput = {
     projectName: project?.name ?? "Untitled Project",
     projectAddress: project?.address ?? null,
     summary: rec.summary ?? "",
@@ -79,7 +81,7 @@ export async function GET(
       confidence: number;
       rate_source_name: string | null;
     }[],
-  });
+  };
 
   const projectSlug = (project?.name ?? "project")
     .toLowerCase()
@@ -96,6 +98,17 @@ export async function GET(
   const vNum = (version as { version_number: number } | null)?.version_number;
   const vSuffix = vNum ? `-v${vNum}` : `-${estimateId.slice(0, 8)}`;
 
+  if (format === "docx") {
+    const docxBytes = await generateCostDocx(reportInput);
+    return new NextResponse(new Uint8Array(docxBytes), {
+      headers: {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "Content-Disposition": `attachment; filename="mmc-quote-${projectSlug}${vSuffix}.docx"`,
+      },
+    });
+  }
+
+  const pdfBytes = generateCostPdf(reportInput);
   return new NextResponse(Buffer.from(pdfBytes), {
     headers: {
       "Content-Type": "application/pdf",

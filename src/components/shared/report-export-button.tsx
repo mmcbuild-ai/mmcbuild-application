@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Download, Loader2 } from "lucide-react";
+import { Download, Loader2, FileText } from "lucide-react";
 
 interface ReportExportButtonProps {
   url: string;
@@ -10,41 +10,43 @@ interface ReportExportButtonProps {
 }
 
 export function ReportExportButton({ url, fallbackFilename }: ReportExportButtonProps) {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState<"pdf" | "docx" | null>(null);
 
-  const handleExport = async () => {
-    setLoading(true);
+  const handleExport = async (format: "pdf" | "docx") => {
+    setLoading(format);
     try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error("Failed to generate PDF");
+      const fetchUrl = format === "docx" ? `${url}${url.includes("?") ? "&" : "?"}format=docx` : url;
+      const res = await fetch(fetchUrl);
+      if (!res.ok) throw new Error("Failed to generate report");
 
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = blobUrl;
+      const fallback = format === "docx" ? fallbackFilename.replace(/\.pdf$/i, ".docx") : fallbackFilename;
       a.download =
-        res.headers
-          .get("Content-Disposition")
-          ?.match(/filename="(.+)"/)?.[1] ?? fallbackFilename;
+        res.headers.get("Content-Disposition")?.match(/filename="(.+)"/)?.[1] ?? fallback;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(blobUrl);
     } catch {
-      alert("Failed to export report. Please try again.");
+      alert(`Failed to export ${format.toUpperCase()} report. Please try again.`);
     } finally {
-      setLoading(false);
+      setLoading(null);
     }
   };
 
   return (
-    <Button variant="outline" size="sm" onClick={handleExport} disabled={loading}>
-      {loading ? (
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-      ) : (
-        <Download className="mr-2 h-4 w-4" />
-      )}
-      Export PDF
-    </Button>
+    <div className="flex gap-2">
+      <Button variant="outline" size="sm" onClick={() => handleExport("pdf")} disabled={loading !== null}>
+        {loading === "pdf" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+        Export PDF
+      </Button>
+      <Button variant="outline" size="sm" onClick={() => handleExport("docx")} disabled={loading !== null}>
+        {loading === "docx" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+        Export Word
+      </Button>
+    </div>
   );
 }

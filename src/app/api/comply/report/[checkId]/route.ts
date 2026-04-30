@@ -1,14 +1,16 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateCompliancePdf } from "@/lib/comply/report-pdf";
+import { generateComplianceDocx } from "@/lib/comply/report-docx";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/supabase/db";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ checkId: string }> }
 ) {
   const { checkId } = await params;
+  const format = new URL(request.url).searchParams.get("format") === "docx" ? "docx" : "pdf";
 
   const supabase = await createClient();
   const {
@@ -53,7 +55,7 @@ export async function GET(
     .eq("check_id", checkId)
     .order("sort_order", { ascending: true });
 
-  const pdfBytes = generateCompliancePdf({
+  const reportInput = {
     projectName: project?.name ?? "Untitled Project",
     projectAddress: project?.address ?? null,
     summary: check.summary ?? "",
@@ -70,7 +72,7 @@ export async function GET(
       ncc_citation: string | null;
       page_references: number[] | null;
     }[],
-  });
+  };
 
   const projectSlug = (project?.name ?? "project")
     .toLowerCase()
@@ -87,6 +89,17 @@ export async function GET(
   const vNum = (version as { version_number: number } | null)?.version_number;
   const vSuffix = vNum ? `-v${vNum}` : `-${checkId.slice(0, 8)}`;
 
+  if (format === "docx") {
+    const docxBytes = await generateComplianceDocx(reportInput);
+    return new NextResponse(new Uint8Array(docxBytes), {
+      headers: {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "Content-Disposition": `attachment; filename="mmc-comply-${projectSlug}${vSuffix}.docx"`,
+      },
+    });
+  }
+
+  const pdfBytes = generateCompliancePdf(reportInput);
   return new NextResponse(Buffer.from(pdfBytes), {
     headers: {
       "Content-Type": "application/pdf",
