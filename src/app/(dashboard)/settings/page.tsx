@@ -1,4 +1,4 @@
-import { Settings, BookOpen, Clock, ArrowRight, Users, UserCog } from "lucide-react";
+import { Settings, BookOpen, Clock, ArrowRight, Users, UserCog, Contact } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -37,6 +37,14 @@ const settingsCards = [
       "Log R&D hours by stage and deliverable for tax incentive claims.",
     icon: Clock,
     href: "/settings/rd-tracking",
+    disabled: false,
+  },
+  {
+    title: "Team Directory",
+    description:
+      "All contributors across your projects. Edit details once or remove someone from every project.",
+    icon: Contact,
+    href: "/settings/team",
     disabled: false,
   },
   {
