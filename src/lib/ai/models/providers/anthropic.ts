@@ -26,28 +26,39 @@ export async function callAnthropic(
   const anthropic = getClient();
 
   const rawMessages = (options.messages ?? []).filter((m) => m.role !== "system");
+  const firstUserIdx = rawMessages.findIndex((x) => x.role === "user");
 
-  // If cacheUserPrefix is set, inject it as a cached content block on the
-  // FIRST user message. Subsequent calls with the same prefix within the
-  // 5-minute TTL will read from cache at 10% of the input cost.
+  // If cacheUserPrefix and/or images are set, the first user message becomes
+  // a content-block array. Caching prefix is at 10% input cost on hit;
+  // images attach as base64 source blocks before the user's text.
   const messages = rawMessages.map((m, idx) => {
-    const isFirstUser =
-      options.cacheUserPrefix &&
-      m.role === "user" &&
-      rawMessages.findIndex((x) => x.role === "user") === idx;
+    const isFirstUser = m.role === "user" && idx === firstUserIdx;
+    const hasPrefix = isFirstUser && options.cacheUserPrefix;
+    const hasImages = isFirstUser && options.images && options.images.length > 0;
 
-    if (isFirstUser) {
-      return {
-        role: "user" as const,
-        content: [
-          {
-            type: "text" as const,
-            text: options.cacheUserPrefix!,
-            cache_control: { type: "ephemeral" as const },
-          },
-          { type: "text" as const, text: m.content },
-        ],
-      };
+    if (hasPrefix || hasImages) {
+      const blocks: Anthropic.ContentBlockParam[] = [];
+      if (hasPrefix) {
+        blocks.push({
+          type: "text",
+          text: options.cacheUserPrefix!,
+          cache_control: { type: "ephemeral" },
+        });
+      }
+      if (hasImages) {
+        for (const img of options.images!) {
+          blocks.push({
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: img.mimeType as "image/jpeg" | "image/png" | "image/webp" | "image/gif",
+              data: img.data.toString("base64"),
+            },
+          });
+        }
+      }
+      blocks.push({ type: "text", text: m.content });
+      return { role: "user" as const, content: blocks };
     }
 
     return { role: m.role as "user" | "assistant", content: m.content };

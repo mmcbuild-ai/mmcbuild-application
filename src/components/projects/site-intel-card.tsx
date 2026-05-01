@@ -30,14 +30,19 @@ function IntelField({
   value: string | number | null;
 }) {
   return (
-    <div className="flex items-start gap-2">
+    <div className="flex min-w-0 items-start gap-2">
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-      <div className="min-w-0">
-        <p className="text-xs text-muted-foreground">{label}</p>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-xs text-muted-foreground">{label}</p>
         {value != null ? (
-          <p className="text-sm font-medium">{value}</p>
+          <p
+            className="truncate text-sm font-medium"
+            title={String(value)}
+          >
+            {value}
+          </p>
         ) : (
-          <p className="text-sm text-muted-foreground italic">Not determined</p>
+          <p className="text-sm italic text-muted-foreground">Not determined</p>
         )}
       </div>
     </div>

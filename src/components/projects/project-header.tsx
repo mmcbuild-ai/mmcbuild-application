@@ -15,21 +15,25 @@ export function ProjectHeader({
   createdAt,
 }: ProjectHeaderProps) {
   return (
-    <div className="space-y-1">
+    <div className="min-w-0 space-y-1">
       <div className="flex items-center gap-3">
-        <h1 className="text-2xl font-bold">{name}</h1>
-        <Badge variant="secondary" className="capitalize">
+        <h1 className="truncate text-2xl font-bold" title={name}>
+          {name}
+        </h1>
+        <Badge variant="secondary" className="shrink-0 capitalize">
           {status}
         </Badge>
       </div>
       {address && (
         <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <MapPin className="h-4 w-4" />
-          <span>{address}</span>
+          <MapPin className="h-4 w-4 shrink-0" />
+          <span className="truncate" title={address}>
+            {address}
+          </span>
         </div>
       )}
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Calendar className="h-3.5 w-3.5" />
+        <Calendar className="h-3.5 w-3.5 shrink-0" />
         <span>
           Created {new Date(createdAt).toLocaleDateString("en-AU")}
         </span>

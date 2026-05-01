@@ -93,6 +93,150 @@ export async function createProject(formData: FormData) {
   return { projectId: project.id };
 }
 
+export async function copyProject(sourceProjectId: string) {
+  const profile = await getProfile();
+  const admin = createAdminClient();
+
+  // 1. Verify ownership and load source
+  const { data: source } = await admin
+    .from("projects")
+    .select("id, org_id, name, address")
+    .eq("id", sourceProjectId)
+    .single();
+
+  if (!source || (source as { org_id: string }).org_id !== profile.org_id) {
+    return { error: "Project not found" };
+  }
+
+  const src = source as { id: string; org_id: string; name: string; address: string | null };
+
+  // 2. Find a unique name. Try "<name> (copy)", then "<name> (copy 2)", etc.
+  const baseName = src.name.replace(/\s*\(copy(?:\s+\d+)?\)\s*$/, "");
+  let candidate = `${baseName} (copy)`;
+  for (let i = 2; i < 50; i++) {
+    const { data: clash } = await admin
+      .from("projects")
+      .select("id")
+      .eq("org_id", profile.org_id)
+      .eq("name", candidate)
+      .maybeSingle();
+    if (!clash) break;
+    candidate = `${baseName} (copy ${i})`;
+  }
+
+  // 3. Insert the new draft project
+  const { data: created, error: insertError } = await admin
+    .from("projects")
+    .insert({
+      org_id: profile.org_id,
+      name: candidate,
+      address: src.address,
+      status: "draft",
+      setup_step: 0,
+      created_by: profile.id,
+    } as never)
+    .select("id")
+    .single();
+
+  if (insertError || !created) {
+    return { error: `Failed to copy project: ${insertError?.message}` };
+  }
+
+  const newId = (created as { id: string }).id;
+
+  // 4. Copy site intel (so derived data carries over without re-geocoding)
+  const { data: intel } = await admin
+    .from("project_site_intel")
+    .select("*")
+    .eq("project_id", sourceProjectId)
+    .maybeSingle();
+
+  if (intel) {
+    const intelBody: Record<string, unknown> = { ...(intel as Record<string, unknown>) };
+    delete intelBody.id;
+    delete intelBody.project_id;
+    delete intelBody.created_at;
+    delete intelBody.updated_at;
+    await admin.from("project_site_intel").insert({
+      ...intelBody,
+      project_id: newId,
+      org_id: profile.org_id,
+    } as never);
+  }
+
+  // 5. Copy questionnaire responses
+  const { data: q } = await admin
+    .from("questionnaire_responses")
+    .select("responses, completed")
+    .eq("project_id", sourceProjectId)
+    .maybeSingle();
+
+  if (q) {
+    await admin.from("questionnaire_responses").insert({
+      project_id: newId,
+      org_id: profile.org_id,
+      responses: (q as { responses: unknown }).responses,
+      completed: (q as { completed: boolean }).completed,
+      created_by: profile.id,
+    } as never);
+  }
+
+  // 6. Copy contributors (team)
+  const { data: contributors } = await admin
+    .from("project_contributors")
+    .select("discipline, company_name, contact_name, contact_email, contact_phone, notes")
+    .eq("project_id", sourceProjectId);
+
+  if (contributors && contributors.length > 0) {
+    const rows = contributors.map((c) => ({
+      ...(c as Record<string, unknown>),
+      project_id: newId,
+      org_id: profile.org_id,
+      created_by: profile.id,
+    }));
+    await admin.from("project_contributors").insert(rows as never);
+  }
+
+  revalidatePath("/projects");
+  return { success: true, projectId: newId };
+}
+
+export async function advanceProjectSetupStep(
+  projectId: string,
+  step: number,
+) {
+  const profile = await getProfile();
+  const admin = createAdminClient();
+
+  const { data: rawProject } = await admin
+    .from("projects")
+    .select("*")
+    .eq("id", projectId)
+    .single();
+
+  const project = rawProject as unknown as
+    | { org_id: string; setup_step?: number | null; status: string }
+    | null;
+
+  if (!project || project.org_id !== profile.org_id) {
+    return { error: "Project not found" };
+  }
+
+  const current = project.setup_step ?? 0;
+  const target = Math.max(current, Math.min(4, Math.max(0, step)));
+
+  if (target !== current) {
+    const { error } = await admin
+      .from("projects")
+      .update({ setup_step: target } as never)
+      .eq("id", projectId);
+    if (error) return { error: `Failed to advance setup: ${error.message}` };
+  }
+
+  revalidatePath(`/projects/${projectId}`);
+  return { success: true, setupStep: target };
+}
+
 export async function activateProject(projectId: string) {
   const profile = await getProfile();
   const admin = createAdminClient();
@@ -328,7 +472,8 @@ export async function registerPlan(
   projectId: string,
   fileName: string,
   filePath: string,
-  fileSizeBytes: number
+  fileSizeBytes: number,
+  fileKind: "pdf" | "image" | "dwg" = "pdf"
 ) {
   const supabase = await createClient();
   const {
@@ -359,6 +504,7 @@ export async function registerPlan(
       file_path: filePath,
       file_size_bytes: fileSizeBytes,
       status: "uploading",
+      file_kind: fileKind,
       created_by: profile.id,
     } as never)
     .select("id")

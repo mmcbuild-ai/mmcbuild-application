@@ -5,19 +5,22 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LayoutDashboard, FileText, Users, ClipboardList } from "lucide-react";
 
 const TABS = [
-  { value: "overview", label: "Overview", icon: LayoutDashboard },
-  { value: "documents", label: "Documents", icon: FileText },
-  { value: "team", label: "Team", icon: Users },
-  { value: "questionnaire", label: "Questionnaire", icon: ClipboardList },
+  { value: "overview", label: "Overview", icon: LayoutDashboard, step: 0 },
+  { value: "documents", label: "Documents", icon: FileText, step: 1 },
+  { value: "team", label: "Team", icon: Users, step: 2 },
+  { value: "questionnaire", label: "Questionnaire", icon: ClipboardList, step: 3 },
 ] as const;
 
 export type ProjectTab = (typeof TABS)[number]["value"];
 
 export function ProjectTabs({
   projectId,
+  setupStep,
   readiness,
 }: {
   projectId: string;
+  /** Furthest step the user has reached. Tabs above this are hidden in draft. */
+  setupStep?: number;
   readiness?: { hasPlans: boolean; hasQuestionnaire: boolean };
 }) {
   const router = useRouter();
@@ -35,10 +38,15 @@ export function ProjectTabs({
     router.push(`/projects/${projectId}${qs ? `?${qs}` : ""}`);
   }
 
+  const visibleTabs =
+    setupStep === undefined
+      ? TABS
+      : TABS.filter((tab) => tab.step <= setupStep);
+
   return (
     <Tabs value={activeTab} onValueChange={handleTabChange}>
       <TabsList>
-        {TABS.map((tab) => {
+        {visibleTabs.map((tab) => {
           const showDot =
             readiness &&
             ((tab.value === "documents" && readiness.hasPlans) ||

@@ -61,22 +61,26 @@ export function PlanList({ plans }: { plans: Plan[] }) {
       <div className="space-y-2">
         {plans.map((plan) => {
           const isStuck = plan.status === "uploading" || plan.status === "error";
+          const statusLabel =
+            plan.status === "manual_review" ? "manual review" : plan.status;
           return (
             <div
               key={plan.id}
-              className="flex items-center justify-between rounded-md border p-3"
+              className="flex items-center justify-between gap-3 rounded-md border p-3"
             >
-              <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-sm font-medium">{plan.file_name}</p>
+              <div className="flex min-w-0 items-center gap-2">
+                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium" title={plan.file_name}>
+                    {plan.file_name}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     {(plan.file_size_bytes / 1024 / 1024).toFixed(1)} MB
                     {plan.page_count && ` · ${plan.page_count} pages`}
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 <Badge
                   variant={
                     plan.status === "ready"
@@ -87,7 +91,7 @@ export function PlanList({ plans }: { plans: Plan[] }) {
                   }
                   className="text-xs capitalize"
                 >
-                  {plan.status}
+                  {statusLabel}
                 </Badge>
                 {isStuck && (
                   <Button

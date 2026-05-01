@@ -21,12 +21,33 @@ export async function callOpenAI(
 ): Promise<ModelCallResult> {
   const openai = getClient();
 
-  const messages = (options.messages ?? []).map((m) => ({
-    role: m.role as "system" | "user" | "assistant",
-    content: m.content,
-  }));
+  const baseMessages = options.messages ?? [];
+  const firstUserIdx = baseMessages.findIndex((m) => m.role === "user");
+  const hasImages = options.images && options.images.length > 0;
 
-  // Inject system message if provided separately
+  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = baseMessages.map(
+    (m, idx) => {
+      if (m.role === "user" && idx === firstUserIdx && hasImages) {
+        const parts: OpenAI.Chat.ChatCompletionContentPart[] = [
+          { type: "text", text: m.content },
+        ];
+        for (const img of options.images!) {
+          parts.push({
+            type: "image_url",
+            image_url: {
+              url: `data:${img.mimeType};base64,${img.data.toString("base64")}`,
+            },
+          });
+        }
+        return { role: "user", content: parts };
+      }
+      return {
+        role: m.role as "system" | "user" | "assistant",
+        content: m.content,
+      };
+    },
+  );
+
   if (options.system && !messages.some((m) => m.role === "system")) {
     messages.unshift({ role: "system", content: options.system });
   }

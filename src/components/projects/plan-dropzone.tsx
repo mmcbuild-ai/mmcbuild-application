@@ -7,6 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Upload, FileText, Loader2 } from "lucide-react";
 import { registerPlan } from "@/app/(dashboard)/projects/actions";
 import { createClient } from "@/lib/supabase/client";
+import {
+  detectPlanKind,
+  contentTypeForKind,
+  ACCEPTED_PLAN_ACCEPT_ATTR,
+} from "@/lib/plans/file-kind";
 
 interface PlanDropzoneProps {
   projectId: string;
@@ -19,73 +24,87 @@ export function PlanDropzone({ projectId }: PlanDropzoneProps) {
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
-  const handleFile = useCallback(async (file: File) => {
-    if (file.type !== "application/pdf") {
-      setError("Only PDF files are accepted");
-      return;
-    }
-
-    if (file.size > 50 * 1024 * 1024) {
-      setError("File size must be under 50MB");
-      return;
-    }
-
-    setSelectedFile(file);
-    setError(null);
-    setUploading(true);
-
-    try {
-      const supabase = createClient();
-
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setError("Not authenticated");
-        setUploading(false);
+  const handleFile = useCallback(
+    async (file: File) => {
+      const kind = detectPlanKind(file.name, file.type);
+      if (!kind) {
+        setError(
+          "Unsupported file type. Use PDF, JPG, PNG, WebP, or DWG.",
+        );
         return;
       }
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("org_id")
-        .eq("user_id", user.id)
-        .single();
-
-      if (!profile) {
-        setError("Profile not found");
-        setUploading(false);
+      if (file.size > 50 * 1024 * 1024) {
+        setError("File size must be under 50MB");
         return;
       }
 
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const filePath = `${profile.org_id}/${projectId}/${Date.now()}_${safeName}`;
+      setSelectedFile(file);
+      setError(null);
+      setUploading(true);
 
-      const { error: storageError } = await supabase.storage
-        .from("plan-uploads")
-        .upload(filePath, file, {
-          contentType: "application/pdf",
-        });
+      try {
+        const supabase = createClient();
 
-      if (storageError) {
-        setError(`Upload failed: ${storageError.message}`);
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) {
+          setError("Not authenticated");
+          setUploading(false);
+          return;
+        }
+
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("org_id")
+          .eq("user_id", user.id)
+          .single();
+
+        if (!profile) {
+          setError("Profile not found");
+          setUploading(false);
+          return;
+        }
+
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const filePath = `${profile.org_id}/${projectId}/${Date.now()}_${safeName}`;
+
+        const { error: storageError } = await supabase.storage
+          .from("plan-uploads")
+          .upload(filePath, file, {
+            contentType: contentTypeForKind(kind, file.name),
+          });
+
+        if (storageError) {
+          setError(`Upload failed: ${storageError.message}`);
+          setUploading(false);
+          return;
+        }
+
+        const result = await registerPlan(
+          projectId,
+          file.name,
+          filePath,
+          file.size,
+          kind,
+        );
+
         setUploading(false);
-        return;
+
+        if (result.error) {
+          setError(result.error);
+        } else {
+          router.refresh();
+        }
+      } catch (err) {
+        console.error("Upload failed:", err);
+        setError("Upload failed. Please try again.");
+        setUploading(false);
       }
-
-      const result = await registerPlan(projectId, file.name, filePath, file.size);
-
-      setUploading(false);
-
-      if (result.error) {
-        setError(result.error);
-      } else {
-        router.refresh();
-      }
-    } catch (err) {
-      console.error("Upload failed:", err);
-      setError("Upload failed. Please try again.");
-      setUploading(false);
-    }
-  }, [projectId, router]);
+    },
+    [projectId, router],
+  );
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -94,7 +113,7 @@ export function PlanDropzone({ projectId }: PlanDropzoneProps) {
       const file = e.dataTransfer.files[0];
       if (file) handleFile(file);
     },
-    [handleFile]
+    [handleFile],
   );
 
   const handleInputChange = useCallback(
@@ -102,7 +121,7 @@ export function PlanDropzone({ projectId }: PlanDropzoneProps) {
       const file = e.target.files?.[0];
       if (file) handleFile(file);
     },
-    [handleFile]
+    [handleFile],
   );
 
   return (
@@ -123,7 +142,7 @@ export function PlanDropzone({ projectId }: PlanDropzoneProps) {
         {uploading ? (
           <>
             <Loader2 className="mb-3 h-10 w-10 animate-spin text-primary" />
-            <p className="text-sm font-medium">
+            <p className="text-sm font-medium break-all px-4">
               Uploading {selectedFile?.name}...
             </p>
             <p className="text-xs text-muted-foreground">
@@ -133,7 +152,9 @@ export function PlanDropzone({ projectId }: PlanDropzoneProps) {
         ) : selectedFile && !error ? (
           <>
             <FileText className="mb-3 h-10 w-10 text-green-600" />
-            <p className="text-sm font-medium">{selectedFile.name} uploaded</p>
+            <p className="text-sm font-medium break-all px-4">
+              {selectedFile.name} uploaded
+            </p>
             <p className="text-xs text-muted-foreground">
               Processing will begin shortly
             </p>
@@ -142,28 +163,29 @@ export function PlanDropzone({ projectId }: PlanDropzoneProps) {
           <>
             <Upload className="mb-3 h-10 w-10 text-muted-foreground" />
             <p className="text-sm font-medium">
-              Drag and drop your building plan PDF here
+              Drag and drop your building plan here
             </p>
             <p className="mb-3 text-xs text-muted-foreground">
-              or click to browse (PDF only, max 50MB)
+              or click to browse — PDF, JPG, PNG, WebP, or DWG (max 50MB)
             </p>
             <Button variant="outline" size="sm" asChild>
               <label className="cursor-pointer">
                 Browse Files
                 <input
                   type="file"
-                  accept="application/pdf"
+                  accept={ACCEPTED_PLAN_ACCEPT_ATTR}
                   className="hidden"
                   onChange={handleInputChange}
                 />
               </label>
             </Button>
+            <p className="mt-3 text-[11px] text-muted-foreground">
+              DWG files are stored for review but not auto-analysed.
+            </p>
           </>
         )}
 
-        {error && (
-          <p className="mt-3 text-sm text-red-600">{error}</p>
-        )}
+        {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
       </CardContent>
     </Card>
   );

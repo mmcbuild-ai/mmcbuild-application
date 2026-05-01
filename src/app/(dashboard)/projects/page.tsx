@@ -10,6 +10,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { FolderOpen } from "lucide-react";
 import { CreateProjectDialog } from "@/components/projects/create-project-dialog";
+import { CopyProjectButton } from "@/components/projects/copy-project-button";
 import { TestingGuide } from "@/components/dashboard/testing-guide";
 
 const showTestingGuide = process.env.NEXT_PUBLIC_TESTING_MODE === "true";
@@ -45,24 +46,33 @@ export default async function ProjectsPage({
       {projects && projects.length > 0 ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {projects.map((project) => (
-            <Link key={project.id} href={`/projects/${project.id}`}>
-              <Card className="hover:shadow-md transition-shadow h-full">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg">{project.name}</CardTitle>
-                    <Badge variant="secondary" className="capitalize">
-                      {project.status}
-                    </Badge>
-                  </div>
-                  <CardDescription>{project.address ?? "No address"}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-xs text-muted-foreground">
-                    Created {new Date(project.created_at).toLocaleDateString("en-AU")}
-                  </p>
-                </CardContent>
-              </Card>
-            </Link>
+            <div key={project.id} className="relative">
+              <Link href={`/projects/${project.id}`} className="block">
+                <Card className="hover:shadow-md transition-shadow h-full overflow-hidden">
+                  <CardHeader>
+                    <div className="flex items-start justify-between gap-2">
+                      <CardTitle className="min-w-0 flex-1 truncate text-lg" title={project.name}>
+                        {project.name}
+                      </CardTitle>
+                      <Badge variant="secondary" className="shrink-0 capitalize">
+                        {project.status}
+                      </Badge>
+                    </div>
+                    <CardDescription className="truncate" title={project.address ?? undefined}>
+                      {project.address ?? "No address"}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-xs text-muted-foreground">
+                      Created {new Date(project.created_at).toLocaleDateString("en-AU")}
+                    </p>
+                  </CardContent>
+                </Card>
+              </Link>
+              <div className="absolute right-2 top-2">
+                <CopyProjectButton projectId={project.id} stopPropagation />
+              </div>
+            </div>
           ))}
         </div>
       ) : (

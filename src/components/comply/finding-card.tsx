@@ -41,9 +41,9 @@ export function FindingCard({ finding }: FindingCardProps) {
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-start justify-between gap-2">
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-xs font-mono text-muted-foreground">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2 mb-1">
+              <span className="font-mono text-xs text-muted-foreground">
                 {finding.ncc_section}
               </span>
               <SeverityBadge severity={finding.severity} />
@@ -53,7 +53,9 @@ export function FindingCard({ finding }: FindingCardProps) {
                 secondaryModel={finding.secondary_model}
               />
             </div>
-            <CardTitle className="text-sm font-medium">{finding.title}</CardTitle>
+            <CardTitle className="text-sm font-medium break-words">
+              {finding.title}
+            </CardTitle>
           </div>
           <div className="flex items-center gap-3 shrink-0">
             <div className="text-right">

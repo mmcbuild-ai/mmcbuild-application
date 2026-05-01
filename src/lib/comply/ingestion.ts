@@ -2,44 +2,85 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { parsePdf } from "@/lib/pdf/parser";
 import { chunkText } from "@/lib/pdf/chunker";
 import { generateEmbeddings } from "@/lib/ai/openai";
+import { callModel } from "@/lib/ai/models/router";
+import type { PlanFileKind } from "@/lib/plans/file-kind";
+
+export interface IngestPlanResult {
+  pageCount: number;
+  chunkCount: number;
+  /** Set when the file format is not auto-extractable (e.g. DWG). */
+  manualReview?: boolean;
+}
+
+const VISION_PROMPT = `You are extracting structured information from a building plan or
+construction drawing for downstream NCC compliance analysis.
+
+Return plain text capturing every detail visible in the drawing:
+- title block (project name, drawing number, revision, date, scale, sheet)
+- all room labels, dimensions and areas
+- wall types, materials, structural notes
+- window and door schedules with sizes and types
+- any annotations, callouts, levels, setbacks, or services
+- legend entries
+
+Do not summarise. Transcribe everything legible. Use line breaks to separate
+distinct regions. If the image is not a building drawing, say so on the first
+line.`;
 
 export async function ingestPlan(
   orgId: string,
   planId: string,
-  pdfBuffer: Buffer
-): Promise<{ pageCount: number; chunkCount: number }> {
+  fileBuffer: Buffer,
+  fileKind: PlanFileKind = "pdf",
+  fileName?: string,
+): Promise<IngestPlanResult> {
   const admin = createAdminClient();
 
-  // 1. Parse PDF
-  const parsed = await parsePdf(pdfBuffer);
+  if (fileKind === "dwg") {
+    return { pageCount: 0, chunkCount: 0, manualReview: true };
+  }
 
-  // 2. Update plan with page count
+  let extractedText: string;
+  let pageCount: number;
+
+  if (fileKind === "image") {
+    const mimeType = guessImageMime(fileName);
+    const result = await callModel("plan_vision", {
+      orgId,
+      maxTokens: 4096,
+      messages: [{ role: "user", content: VISION_PROMPT }],
+      images: [{ data: fileBuffer, mimeType }],
+    });
+    extractedText = result.text;
+    pageCount = 1;
+  } else {
+    const parsed = await parsePdf(fileBuffer);
+    extractedText = parsed.text;
+    pageCount = parsed.pageCount;
+  }
+
   await admin
     .from("plans")
-    .update({ page_count: parsed.pageCount } as never)
+    .update({ page_count: pageCount } as never)
     .eq("id", planId);
 
-  // 3. Chunk the text
-  const chunks = chunkText(parsed.text, {
+  const chunks = chunkText(extractedText, {
     sourceType: "plan",
     sourceId: planId,
   });
 
   if (chunks.length === 0) {
-    return { pageCount: parsed.pageCount, chunkCount: 0 };
+    return { pageCount, chunkCount: 0 };
   }
 
-  // 4. Generate embeddings for all chunks
   const embeddings = await generateEmbeddings(chunks.map((c) => c.content));
 
-  // 5. Delete any existing embeddings for this plan (re-processing)
   await admin
     .from("document_embeddings")
     .delete()
     .eq("source_type", "plan")
     .eq("source_id", planId);
 
-  // 6. Insert chunks with embeddings
   const rows = chunks.map((chunk, i) => ({
     org_id: orgId,
     source_type: "plan" as const,
@@ -50,18 +91,26 @@ export async function ingestPlan(
     embedding: JSON.stringify(embeddings[i].embedding),
   }));
 
-  // Insert in batches of 50
   for (let i = 0; i < rows.length; i += 50) {
     const batch = rows.slice(i, i + 50);
-    const { error } = await admin.from("document_embeddings").insert(batch as never);
+    const { error } = await admin
+      .from("document_embeddings")
+      .insert(batch as never);
     if (error) {
       throw new Error(`Failed to insert embeddings batch ${i}: ${error.message}`);
     }
   }
 
   console.log(
-    `[Ingestion] Plan ${planId}: ${parsed.pageCount} pages, ${chunks.length} chunks embedded`
+    `[Ingestion] Plan ${planId} (${fileKind}): ${pageCount} page(s), ${chunks.length} chunks embedded`,
   );
 
-  return { pageCount: parsed.pageCount, chunkCount: chunks.length };
+  return { pageCount, chunkCount: chunks.length };
+}
+
+function guessImageMime(fileName: string | undefined): string {
+  const ext = fileName?.split(".").pop()?.toLowerCase() ?? "";
+  if (ext === "png") return "image/png";
+  if (ext === "webp") return "image/webp";
+  return "image/jpeg";
 }

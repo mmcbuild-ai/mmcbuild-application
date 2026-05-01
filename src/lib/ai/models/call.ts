@@ -30,6 +30,13 @@ export interface ModelCallOptions {
    * Ignored by non-Anthropic providers.
    */
   cacheUserPrefix?: string;
+  /**
+   * Image attachments to embed into the first user message. Used for vision
+   * tasks (e.g. extracting plan content from JPG/PNG drawings). Each entry is
+   * raw bytes plus its MIME type — providers convert to the format they
+   * expect (Anthropic: base64 source block; OpenAI: data URL).
+   */
+  images?: { data: Buffer; mimeType: string }[];
   // For embeddings
   input?: string | string[];
   dimensions?: number;
