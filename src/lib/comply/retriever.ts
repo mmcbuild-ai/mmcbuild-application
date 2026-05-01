@@ -33,8 +33,8 @@ export async function retrieveContext(
     match_threshold: matchThreshold,
     match_count: matchCount,
     filter_org_id: orgId,
-    filter_source_type: sourceType ?? null,
-    filter_source_id: sourceId ?? null,
+    filter_source_type: sourceType ?? undefined,
+    filter_source_id: sourceId ?? undefined,
     include_system: includeSystem,
   });
 
