@@ -96,6 +96,11 @@ export const processPlan = inngest.createFunction(
 
     // 3. Download, parse, chunk, and embed in a single step
     //    (avoids passing large file buffers between steps — Inngest has a 4MB step output limit)
+    //
+    //    DWG files are converted to PDF via CloudConvert here so they flow
+    //    through the same text/embedding pipeline as native PDFs. If
+    //    conversion fails or CloudConvert is not configured, the file falls
+    //    back to manual_review status (file stored, no auto extraction).
     const result = await step.run("download-and-ingest", async () => {
       const admin = createAdminClient();
       const { data, error } = await admin.storage
@@ -107,15 +112,23 @@ export const processPlan = inngest.createFunction(
       }
 
       const arrayBuffer = await data.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
+      let buffer: Buffer = Buffer.from(arrayBuffer);
+      let kind: "pdf" | "image" | "dwg" = plan.file_kind ?? "pdf";
 
-      return await ingestPlan(
-        plan.org_id,
-        plan.id,
-        buffer,
-        plan.file_kind ?? "pdf",
-        plan.file_name,
-      );
+      if (kind === "dwg") {
+        const { convertDwgToPdf } = await import("@/lib/plans/dwg-converter");
+        const conv = await convertDwgToPdf(buffer, plan.file_name);
+        if ("error" in conv) {
+          console.warn(
+            `[processPlan] DWG conversion failed for ${plan.id}: ${conv.error}. Falling back to manual_review.`,
+          );
+          return { pageCount: 0, chunkCount: 0, manualReview: true };
+        }
+        buffer = conv.pdfBuffer;
+        kind = "pdf";
+      }
+
+      return await ingestPlan(plan.org_id, plan.id, buffer, kind, plan.file_name);
     });
 
     // 4. Update status: DWG/manual-review files are stored only; everything
