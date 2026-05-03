@@ -42,6 +42,8 @@ export default async function ReportPage({
     sort_order: number;
     affected_wall_ids: string[] | null;
     affected_room_ids: string[] | null;
+    decision: "undecided" | "pursuing" | "considering" | "rejected" | null;
+    decision_note: string | null;
   }[];
 
   return (

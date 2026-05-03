@@ -146,3 +146,73 @@ export async function getProjectDesignChecks(projectId: string) {
 
   return data ?? [];
 }
+
+export type SuggestionDecision =
+  | "undecided"
+  | "pursuing"
+  | "considering"
+  | "rejected";
+
+export async function setSuggestionDecision(
+  suggestionId: string,
+  decision: SuggestionDecision,
+  note?: string,
+) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("id, org_id")
+    .eq("user_id", user.id)
+    .single();
+
+  if (!profile) return { error: "Profile not found" };
+
+  const admin = createAdminClient();
+
+  const { data: suggestion } = await admin
+    .from("design_suggestions")
+    .select("id, check_id, design_checks!inner(org_id, project_id)")
+    .eq("id", suggestionId)
+    .single();
+
+  const checkRow = (suggestion as unknown as
+    | {
+        id: string;
+        check_id: string;
+        design_checks: { org_id: string; project_id: string };
+      }
+    | null) ?? null;
+
+  if (!checkRow || checkRow.design_checks.org_id !== profile.org_id) {
+    return { error: "Suggestion not found" };
+  }
+
+  const updates: Record<string, unknown> = {
+    decision,
+    decided_by: profile.id,
+    decided_at: new Date().toISOString(),
+  };
+  if (note !== undefined) {
+    updates.decision_note = note.trim() ? note.trim() : null;
+  }
+
+  const { error } = await admin
+    .from("design_suggestions")
+    .update(updates as never)
+    .eq("id", suggestionId);
+
+  if (error) {
+    return { error: `Failed to set decision: ${error.message}` };
+  }
+
+  revalidatePath(
+    `/build/${checkRow.design_checks.project_id}/report/${checkRow.check_id}`,
+  );
+  return { success: true };
+}

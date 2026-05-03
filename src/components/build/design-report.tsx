@@ -1,6 +1,9 @@
 import { SuggestionCard } from "./suggestion-card";
 import { getTechnologyLabel } from "@/lib/ai/types";
 import { ReportExportButton } from "@/components/shared/report-export-button";
+import { ReportLegend } from "./report-legend";
+import { DecisionSummary } from "./decision-summary";
+import type { SuggestionDecision } from "@/app/(dashboard)/build/actions";
 
 interface Suggestion {
   id: string;
@@ -14,6 +17,8 @@ interface Suggestion {
   implementation_complexity: string;
   confidence: number;
   sort_order: number;
+  decision?: SuggestionDecision | null;
+  decision_note?: string | null;
 }
 
 interface DesignReportProps {
@@ -26,35 +31,10 @@ interface DesignReportProps {
 }
 
 export function DesignReport({ check, suggestions }: DesignReportProps) {
-  // Group suggestions by technology category
   const categories = [...new Set(suggestions.map((s) => s.technology_category))];
-
-  // Aggregate stats
-  const avgTimeSavings =
-    suggestions.length > 0
-      ? Math.round(
-          suggestions.reduce((sum, s) => sum + (s.estimated_time_savings ?? 0), 0) /
-            suggestions.length
-        )
-      : 0;
-  const avgCostSavings =
-    suggestions.length > 0
-      ? Math.round(
-          suggestions.reduce((sum, s) => sum + (s.estimated_cost_savings ?? 0), 0) /
-            suggestions.length
-        )
-      : 0;
-  const avgWasteReduction =
-    suggestions.length > 0
-      ? Math.round(
-          suggestions.reduce((sum, s) => sum + (s.estimated_waste_reduction ?? 0), 0) /
-            suggestions.length
-        )
-      : 0;
 
   return (
     <div className="space-y-6">
-      {/* Export button */}
       <div className="flex justify-end">
         <ReportExportButton
           url={`/api/build/report/${check.id}`}
@@ -62,14 +42,10 @@ export function DesignReport({ check, suggestions }: DesignReportProps) {
         />
       </div>
 
-      {/* Aggregate stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <StatCard label="Avg. Time Savings" value={`${avgTimeSavings}%`} />
-        <StatCard label="Avg. Cost Savings" value={`${avgCostSavings}%`} />
-        <StatCard label="Avg. Waste Reduction" value={`${avgWasteReduction}%`} />
-      </div>
+      <DecisionSummary suggestions={suggestions} />
 
-      {/* Executive summary */}
+      <ReportLegend />
+
       {check.summary && (
         <div className="rounded-lg border border-teal-200 bg-teal-50 p-4">
           <h3 className="text-sm font-semibold text-teal-900 mb-2">
@@ -81,7 +57,6 @@ export function DesignReport({ check, suggestions }: DesignReportProps) {
         </div>
       )}
 
-      {/* Disclaimer */}
       <div className="rounded-md border border-yellow-200 bg-yellow-50 p-4">
         <p className="text-xs text-yellow-800">
           <strong>Disclaimer:</strong> These are AI-generated advisory suggestions
@@ -91,7 +66,6 @@ export function DesignReport({ check, suggestions }: DesignReportProps) {
         </p>
       </div>
 
-      {/* Suggestions grouped by category */}
       {categories.map((category) => {
         const catSuggestions = suggestions.filter(
           (s) => s.technology_category === category
@@ -128,15 +102,6 @@ export function DesignReport({ check, suggestions }: DesignReportProps) {
           </p>
         </div>
       )}
-    </div>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border bg-white p-4 text-center">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-2xl font-bold text-teal-700">{value}</p>
     </div>
   );
 }

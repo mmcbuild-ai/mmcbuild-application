@@ -1,14 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ChevronDown, ChevronUp, ArrowRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  ChevronDown,
+  ChevronUp,
+  ArrowRight,
+  CheckCircle2,
+  CircleHelp,
+  XCircle,
+  StickyNote,
+} from "lucide-react";
 import {
   getTechnologyLabel,
   COMPLEXITY_LABELS,
   COMPLEXITY_COLOURS,
   type ImplementationComplexity,
 } from "@/lib/ai/types";
+import {
+  setSuggestionDecision,
+  type SuggestionDecision,
+} from "@/app/(dashboard)/build/actions";
 
 interface SuggestionCardProps {
   suggestion: {
@@ -22,15 +36,56 @@ interface SuggestionCardProps {
     estimated_waste_reduction: number | null;
     implementation_complexity: string;
     confidence: number;
+    decision?: SuggestionDecision | null;
+    decision_note?: string | null;
   };
 }
 
+const DECISION_BORDER: Record<SuggestionDecision, string> = {
+  undecided: "border-l-teal-500",
+  pursuing: "border-l-emerald-500",
+  considering: "border-l-amber-500",
+  rejected: "border-l-rose-500",
+};
+
 export function SuggestionCard({ suggestion }: SuggestionCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const [decision, setDecision] = useState<SuggestionDecision>(
+    suggestion.decision ?? "undecided",
+  );
+  const [note, setNote] = useState(suggestion.decision_note ?? "");
+  const [showNote, setShowNote] = useState(!!suggestion.decision_note);
+  const [isPending, startTransition] = useTransition();
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   const complexity = suggestion.implementation_complexity as ImplementationComplexity;
 
+  function persistDecision(next: SuggestionDecision, nextNote?: string) {
+    setSaveError(null);
+    startTransition(async () => {
+      const result = await setSuggestionDecision(
+        suggestion.id,
+        next,
+        nextNote ?? note,
+      );
+      if (result.error) {
+        setSaveError(result.error);
+      }
+    });
+  }
+
+  function pickDecision(next: SuggestionDecision) {
+    if (next === decision) return;
+    setDecision(next);
+    persistDecision(next);
+  }
+
+  function saveNote() {
+    persistDecision(decision, note);
+  }
+
   return (
-    <Card className="border-l-4 border-l-teal-500">
+    <Card className={`border-l-4 ${DECISION_BORDER[decision]}`}>
       <CardHeader
         className="cursor-pointer pb-2"
         onClick={() => setExpanded(!expanded)}
@@ -42,9 +97,10 @@ export function SuggestionCard({ suggestion }: SuggestionCardProps) {
                 {getTechnologyLabel(suggestion.technology_category)}
               </span>
               <span
-                className={`text-xs font-medium px-2 py-0.5 rounded-full ${COMPLEXITY_COLOURS[complexity] ?? "bg-gray-100 text-gray-700"}`}
+                title="How disruptive this change would be to implement: structural impact, trade availability, schedule. Not financial — that's the cost-savings stat."
+                className={`text-xs font-medium px-2 py-0.5 rounded-full cursor-help ${COMPLEXITY_COLOURS[complexity] ?? "bg-gray-100 text-gray-700"}`}
               >
-                {COMPLEXITY_LABELS[complexity] ?? complexity}
+                {COMPLEXITY_LABELS[complexity] ?? complexity} effort
               </span>
             </div>
             <CardTitle className="text-sm font-medium">
@@ -52,8 +108,13 @@ export function SuggestionCard({ suggestion }: SuggestionCardProps) {
             </CardTitle>
           </div>
           <div className="flex items-center gap-3 shrink-0">
-            <div className="text-right">
-              <div className="text-xs text-muted-foreground">Confidence</div>
+            <div
+              className="text-right"
+              title="AI's confidence that this suggestion fits this specific plan and would deliver the claimed savings. Calibrated by your team's past feedback."
+            >
+              <div className="text-xs text-muted-foreground cursor-help">
+                Confidence
+              </div>
               <div className="flex items-center gap-1">
                 <div className="h-1.5 w-16 rounded-full bg-muted overflow-hidden">
                   <div
@@ -77,7 +138,6 @@ export function SuggestionCard({ suggestion }: SuggestionCardProps) {
 
       {expanded && (
         <CardContent className="pt-0 space-y-4">
-          {/* Before / After */}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-md border bg-red-50 p-3">
               <p className="text-xs font-semibold text-red-700 mb-1">Current Approach</p>
@@ -89,31 +149,100 @@ export function SuggestionCard({ suggestion }: SuggestionCardProps) {
             </div>
           </div>
 
-          {/* Arrow between cards on mobile */}
           <div className="flex justify-center sm:hidden -my-2">
             <ArrowRight className="h-5 w-5 text-teal-500 rotate-90" />
           </div>
 
-          {/* Benefits */}
           <div>
             <p className="text-xs font-medium mb-1">Benefits</p>
             <p className="text-sm text-muted-foreground">{suggestion.benefits}</p>
           </div>
 
-          {/* Savings estimates */}
           <div className="grid grid-cols-3 gap-3">
             <SavingsStat
               label="Time Savings"
               value={suggestion.estimated_time_savings}
+              tooltip="Estimated reduction in build programme vs traditional construction (% of programme weeks)."
             />
             <SavingsStat
               label="Cost Savings"
               value={suggestion.estimated_cost_savings}
+              tooltip="Estimated reduction in total cost-of-build for this element vs traditional construction (% of element cost)."
             />
             <SavingsStat
               label="Waste Reduction"
               value={suggestion.estimated_waste_reduction}
+              tooltip="Estimated reduction in on-site material waste vs traditional construction (% by mass)."
             />
+          </div>
+
+          <div className="rounded-md border bg-muted/30 p-3 space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Your decision
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <DecisionButton
+                active={decision === "pursuing"}
+                disabled={isPending}
+                onClick={() => pickDecision("pursuing")}
+                icon={CheckCircle2}
+                label="Pursuing"
+                activeClass="bg-emerald-600 text-white hover:bg-emerald-700"
+              />
+              <DecisionButton
+                active={decision === "considering"}
+                disabled={isPending}
+                onClick={() => pickDecision("considering")}
+                icon={CircleHelp}
+                label="Considering"
+                activeClass="bg-amber-500 text-white hover:bg-amber-600"
+              />
+              <DecisionButton
+                active={decision === "rejected"}
+                disabled={isPending}
+                onClick={() => pickDecision("rejected")}
+                icon={XCircle}
+                label="Not for this project"
+                activeClass="bg-rose-600 text-white hover:bg-rose-700"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-xs"
+                onClick={() => setShowNote((s) => !s)}
+              >
+                <StickyNote className="mr-1.5 h-3.5 w-3.5" />
+                {showNote ? "Hide note" : note ? "Edit note" : "Add note"}
+              </Button>
+            </div>
+
+            {showNote && (
+              <div className="space-y-2">
+                <Textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="Why this decision? e.g. 'client likes carbon story', 'site can't take crane', 'awaiting structural engineer's view'"
+                  className="text-sm"
+                  rows={2}
+                />
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={saveNote}
+                    disabled={isPending}
+                  >
+                    Save note
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {saveError && (
+              <p className="text-xs text-rose-600">{saveError}</p>
+            )}
           </div>
         </CardContent>
       )}
@@ -121,17 +250,54 @@ export function SuggestionCard({ suggestion }: SuggestionCardProps) {
   );
 }
 
+function DecisionButton({
+  active,
+  disabled,
+  onClick,
+  icon: Icon,
+  label,
+  activeClass,
+}: {
+  active: boolean;
+  disabled: boolean;
+  onClick: () => void;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  activeClass: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 ${
+        active
+          ? activeClass
+          : "bg-background hover:bg-muted text-foreground"
+      }`}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {label}
+    </button>
+  );
+}
+
 function SavingsStat({
   label,
   value,
+  tooltip,
 }: {
   label: string;
   value: number | null;
+  tooltip?: string;
 }) {
   const pct = value ?? 0;
   return (
-    <div className="text-center rounded-md border p-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
+    <div
+      className="text-center rounded-md border p-2"
+      title={tooltip}
+    >
+      <p className="text-xs text-muted-foreground cursor-help">{label}</p>
       <p className="text-lg font-bold text-teal-700">
         {pct > 0 ? `-${pct}%` : "—"}
       </p>
