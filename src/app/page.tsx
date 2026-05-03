@@ -86,6 +86,28 @@ export default async function LandingPage() {
         </div>
       </section>
 
+      {/* Overview video */}
+      <section className="mx-auto max-w-4xl px-6 pb-24">
+        <div className="rounded-xl border bg-card overflow-hidden shadow-sm">
+          <div className="relative aspect-video w-full bg-black">
+            <video
+              src="/videos/overview-explainer.mp4"
+              poster="/videos/overview-poster.jpg"
+              controls
+              preload="metadata"
+              className="absolute inset-0 h-full w-full"
+              aria-label="MMC Build platform overview"
+            />
+          </div>
+          <div className="px-6 py-4 text-center">
+            <p className="text-sm text-muted-foreground">
+              90-second walkthrough — Project &rarr; Comply &rarr; Build &rarr;
+              Quote &rarr; Direct &rarr; Train, the way an architect would use it.
+            </p>
+          </div>
+        </div>
+      </section>
+
       {/* Modules */}
       <section className="mx-auto max-w-6xl px-6 pb-24">
         <h2 className="text-center text-2xl font-bold tracking-tight sm:text-3xl mb-4">
