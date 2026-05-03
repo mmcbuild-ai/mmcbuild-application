@@ -17,6 +17,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -81,6 +82,9 @@ export function ProjectContributors({
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Add Contributor</DialogTitle>
+              <DialogDescription>
+                Add a project team member who can receive compliance findings.
+              </DialogDescription>
             </DialogHeader>
             <ContributorForm
               projectId={projectId}
@@ -136,6 +140,10 @@ export function ProjectContributors({
                       <DialogContent>
                         <DialogHeader>
                           <DialogTitle>Edit Contributor</DialogTitle>
+                          <DialogDescription>
+                            Update contributor details. Changes apply to this
+                            project only.
+                          </DialogDescription>
                         </DialogHeader>
                         <ContributorForm
                           projectId={projectId}

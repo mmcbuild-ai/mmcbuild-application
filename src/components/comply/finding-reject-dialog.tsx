@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -54,6 +55,10 @@ export function FindingRejectDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Reject Finding</DialogTitle>
+          <DialogDescription>
+            Provide a reason for rejecting this finding. The reason is recorded
+            in the activity log.
+          </DialogDescription>
         </DialogHeader>
 
         <form action={handleSubmit} className="space-y-4">

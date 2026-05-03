@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -104,6 +105,10 @@ export function ShareFindingDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Share Finding</DialogTitle>
+          <DialogDescription>
+            Send this finding to a contributor by email. Pick an existing
+            contributor or add a new one.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">

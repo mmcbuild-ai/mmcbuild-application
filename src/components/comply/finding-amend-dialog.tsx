@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -79,6 +80,10 @@ export function FindingAmendDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Amend Finding</DialogTitle>
+          <DialogDescription>
+            Update description, remediation action, discipline, or assigned
+            contributor. Original wording is preserved alongside the amendment.
+          </DialogDescription>
         </DialogHeader>
 
         <form action={handleSubmit} className="space-y-4">

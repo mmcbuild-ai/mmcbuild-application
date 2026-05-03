@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -77,6 +78,9 @@ export function EditProjectDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Edit Project</DialogTitle>
+          <DialogDescription>
+            Update the project name, address, or status.
+          </DialogDescription>
         </DialogHeader>
         <form action={handleSubmit} className="space-y-4">
           <div className="space-y-2">

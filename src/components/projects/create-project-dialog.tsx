@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -23,6 +24,7 @@ import type { GeocodedAddress } from "@caistech/mapbox";
 export function CreateProjectDialog({ defaultOpen = false }: { defaultOpen?: boolean } = {}) {
   const [open, setOpen] = useState(defaultOpen);
   const [loading, setLoading] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const geocodedRef = useRef<GeocodedAddress | null>(null);
   const router = useRouter();
 
@@ -58,12 +60,18 @@ export function CreateProjectDialog({ defaultOpen = false }: { defaultOpen?: boo
     }
 
     setLoading(true);
+    setSubmitError(null);
     try {
       const { projectId } = await createProject(formData);
       setOpen(false);
       geocodedRef.current = null;
       property.reset();
       router.push(`/projects/${projectId}?tab=documents`);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to create project";
+      setSubmitError(message);
+      console.error("[CreateProjectDialog] createProject failed:", err);
     } finally {
       setLoading(false);
     }
@@ -82,6 +90,10 @@ export function CreateProjectDialog({ defaultOpen = false }: { defaultOpen?: boo
       <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Create Project</DialogTitle>
+          <DialogDescription>
+            Enter a project name and address. We&apos;ll auto-derive site
+            intelligence (climate zone, wind region, council) from the address.
+          </DialogDescription>
         </DialogHeader>
         <form action={handleSubmit} className="flex flex-col flex-1 min-h-0">
           <div className="space-y-4 shrink-0">
@@ -235,6 +247,13 @@ export function CreateProjectDialog({ defaultOpen = false }: { defaultOpen?: boo
               </div>
             )}
           </div>
+
+          {submitError && (
+            <div className="mt-4 flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm text-destructive shrink-0">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{submitError}</span>
+            </div>
+          )}
 
           <div className="flex justify-end gap-2 pt-4 border-t mt-4 shrink-0">
             <Button
