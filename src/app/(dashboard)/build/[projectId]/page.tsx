@@ -16,6 +16,7 @@ import { getProjectDesignChecks, getProjectSelectedSystems } from "../actions";
 import { RunOptimisationButton } from "@/components/build/run-optimisation-button";
 import { SystemSelectionPanel } from "@/components/build/system-selection-panel";
 import { ReportVersionList } from "@/components/shared/report-version-list";
+import { ProjectContextSummary } from "@/components/shared/project-context-summary";
 import { getReportVersions } from "@/lib/report-versions";
 
 export default async function ProjectBuildPage({
@@ -98,6 +99,8 @@ export default async function ProjectBuildPage({
           {project.address ?? "No address"}
         </p>
       </div>
+
+      <ProjectContextSummary projectId={projectId} />
 
       {/* Construction system selection */}
       <SystemSelectionPanel

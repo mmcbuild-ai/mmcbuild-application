@@ -72,7 +72,35 @@ const PARTY_WALL_TYPOLOGIES = new Set([
   "Mixed use",
 ]);
 
+const DESIGN_STAGES = [
+  "Concept / brief",
+  "Schematic design",
+  "Design development",
+  "Documentation (DA-ready)",
+  "Construction Certificate ready",
+  "Submitted (post-DA)",
+  "Submitted (post-CC)",
+];
+
+const PROJECT_GOALS = [
+  "Explore MMC options early",
+  "Validate compliance pathway",
+  "Compare cost vs. traditional",
+  "Brief the client",
+  "Submission-ready evidence pack",
+  "Educate myself on MMC",
+];
+
+const SUBMISSION_TIMELINES = [
+  "No fixed date",
+  "Within 4 weeks",
+  "1–3 months",
+  "3–6 months",
+  "Already submitted",
+];
+
 const STEPS = [
+  "Project Status",
   "Building Classification",
   "Structure & Footings (H1)",
   "Weatherproofing (H2)",
@@ -261,6 +289,9 @@ export function QuestionnaireForm({
     !existingResponses && siteIntel?.wind_region ? siteIntel.wind_region : null;
 
   const [responses, setResponses] = useState<Record<string, string>>({
+    design_stage: defaults.design_stage ?? "",
+    project_goals: defaults.project_goals ?? "",
+    submission_timeline: defaults.submission_timeline ?? "",
     building_typology: defaults.building_typology ?? "",
     building_class: defaults.building_class ?? "",
     construction_type: defaults.construction_type ?? "",
@@ -319,10 +350,10 @@ export function QuestionnaireForm({
   const showAccessibilityStep = !typology || RESIDENTIAL_TYPOLOGIES.has(typology);
   const canHavePartyWall = !typology || PARTY_WALL_TYPOLOGIES.has(typology);
 
-  // Step 7 (Access & Livable Housing) is hidden for hotel/commercial typologies.
+  // Step 8 (Access & Livable Housing) is hidden for hotel/commercial typologies.
   // We collapse the visible step list so navigation skips it cleanly.
   const visibleSteps = STEPS.map((label, i) => ({ label, originalIndex: i })).filter(
-    (s) => s.originalIndex !== 7 || showAccessibilityStep,
+    (s) => s.originalIndex !== 8 || showAccessibilityStep,
   );
   const currentVisibleIdx = visibleSteps.findIndex((s) => s.originalIndex === step);
   const safeVisibleIdx = currentVisibleIdx === -1 ? 0 : currentVisibleIdx;
@@ -386,6 +417,72 @@ export function QuestionnaireForm({
         <CardContent className="space-y-4">
           {step === 0 && (
             <>
+              <div>
+                <Label>What stage are your designs at?</Label>
+                <select
+                  className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                  value={responses.design_stage}
+                  onChange={(e) => update("design_stage", e.target.value)}
+                >
+                  <option value="">Select stage</option>
+                  {DESIGN_STAGES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  MMC analysis pays off most at concept and schematic stages —
+                  before drawings lock and before council submission.
+                </p>
+              </div>
+
+              <div>
+                <Label>What do you want to get out of this project?</Label>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  Select all that apply.
+                </p>
+                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                  {PROJECT_GOALS.map((g) => {
+                    const current = (responses.project_goals ?? "")
+                      .split("|")
+                      .filter(Boolean);
+                    const checked = current.includes(g);
+                    return (
+                      <label
+                        key={g}
+                        className="inline-flex cursor-pointer select-none items-center gap-2"
+                      >
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-gray-300"
+                          checked={checked}
+                          onChange={(e) => {
+                            const next = e.target.checked
+                              ? [...current, g]
+                              : current.filter((x) => x !== g);
+                            update("project_goals", next.join("|"));
+                          }}
+                        />
+                        <span className="text-sm">{g}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <SelectField
+                label="Submission timeline"
+                value={responses.submission_timeline}
+                onChange={(v) => update("submission_timeline", v)}
+                options={SUBMISSION_TIMELINES}
+                placeholder="When are you targeting council submission?"
+              />
+            </>
+          )}
+
+          {step === 1 && (
+            <>
               <SelectField
                 label="Building Typology"
                 value={responses.building_typology}
@@ -414,7 +511,7 @@ export function QuestionnaireForm({
             </>
           )}
 
-          {step === 1 && (
+          {step === 2 && (
             <>
               <TextField
                 label="Number of Storeys"
@@ -467,7 +564,7 @@ export function QuestionnaireForm({
             </>
           )}
 
-          {step === 2 && (
+          {step === 3 && (
             <>
               <SelectField
                 label="Roof Material"
@@ -500,7 +597,7 @@ export function QuestionnaireForm({
             </>
           )}
 
-          {step === 3 && (
+          {step === 4 && (
             <>
               <TextField
                 label="Distance to Boundary (m)"
@@ -540,7 +637,7 @@ export function QuestionnaireForm({
             </>
           )}
 
-          {step === 4 && (
+          {step === 5 && (
             <>
               <TextField
                 label="Number of Wet Areas"
@@ -581,7 +678,7 @@ export function QuestionnaireForm({
             </>
           )}
 
-          {step === 5 && (
+          {step === 6 && (
             <>
               <SelectField
                 label="Energy Compliance Pathway"
@@ -644,7 +741,7 @@ export function QuestionnaireForm({
             </>
           )}
 
-          {step === 6 && (
+          {step === 7 && (
             <>
               <LockedAutoField
                 label="Climate Zone"
@@ -688,7 +785,7 @@ export function QuestionnaireForm({
             </>
           )}
 
-          {step === 7 && showAccessibilityStep && (
+          {step === 8 && showAccessibilityStep && (
             <>
               <CheckboxField
                 label="Has stairs"

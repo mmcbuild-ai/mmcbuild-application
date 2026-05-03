@@ -30,6 +30,7 @@ import {
 import { RunCheckButton } from "@/components/comply/run-check-button";
 import { ReadinessIndicators } from "@/components/projects/readiness-indicators";
 import { ReportVersionList } from "@/components/shared/report-version-list";
+import { ProjectContextSummary } from "@/components/shared/project-context-summary";
 import { getReportVersions } from "@/lib/report-versions";
 
 export default async function ProjectComplyPage({
@@ -121,6 +122,8 @@ export default async function ProjectComplyPage({
           {project.address ?? "No address"}
         </p>
       </div>
+
+      <ProjectContextSummary projectId={projectId} />
 
       {/* Readiness + Run Check */}
       <div className="grid gap-6 md:grid-cols-2">

@@ -15,6 +15,7 @@ import { getProjectPlans } from "@/app/(dashboard)/projects/actions";
 import { getProjectCostEstimates } from "../actions";
 import { RunEstimateButton } from "@/components/quote/run-estimate-button";
 import { ReportVersionList } from "@/components/shared/report-version-list";
+import { ProjectContextSummary } from "@/components/shared/project-context-summary";
 import { getReportVersions } from "@/lib/report-versions";
 
 export default async function ProjectQuotePage({
@@ -97,6 +98,8 @@ export default async function ProjectQuotePage({
           {project.address ?? "No address"}
         </p>
       </div>
+
+      <ProjectContextSummary projectId={projectId} />
 
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
