@@ -977,6 +977,10 @@ export type Database = {
           confidence: number
           created_at: string
           current_approach: string
+          decided_at: string | null
+          decided_by: string | null
+          decision: Database["public"]["Enums"]["suggestion_decision"]
+          decision_note: string | null
           estimated_cost_savings: number | null
           estimated_time_savings: number | null
           estimated_waste_reduction: number | null
@@ -994,6 +998,10 @@ export type Database = {
           confidence?: number
           created_at?: string
           current_approach: string
+          decided_at?: string | null
+          decided_by?: string | null
+          decision?: Database["public"]["Enums"]["suggestion_decision"]
+          decision_note?: string | null
           estimated_cost_savings?: number | null
           estimated_time_savings?: number | null
           estimated_waste_reduction?: number | null
@@ -1011,6 +1019,10 @@ export type Database = {
           confidence?: number
           created_at?: string
           current_approach?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          decision?: Database["public"]["Enums"]["suggestion_decision"]
+          decision_note?: string | null
           estimated_cost_savings?: number | null
           estimated_time_savings?: number | null
           estimated_waste_reduction?: number | null
@@ -1026,6 +1038,13 @@ export type Database = {
             columns: ["check_id"]
             isOneToOne: false
             referencedRelation: "design_checks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "design_suggestions_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -3448,6 +3467,7 @@ export type Database = {
       review_status: "pending" | "approved" | "rejected"
       risk_level: "low" | "medium" | "high" | "critical"
       seat_type: "internal" | "external" | "viewer"
+      suggestion_decision: "undecided" | "pursuing" | "considering" | "rejected"
       trade_type:
         | "builder"
         | "architect"
@@ -3692,6 +3712,7 @@ export const Constants = {
       review_status: ["pending", "approved", "rejected"],
       risk_level: ["low", "medium", "high", "critical"],
       seat_type: ["internal", "external", "viewer"],
+      suggestion_decision: ["undecided", "pursuing", "considering", "rejected"],
       trade_type: [
         "builder",
         "architect",
