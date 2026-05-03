@@ -11,8 +11,16 @@ interface ExplainerVideoProps {
   title: string;
   description: string;
   bullets: ExplainerBullet[];
-  /** Optional embed URL (YouTube/Vimeo/Mux). When omitted, shows placeholder. */
+  /**
+   * Optional video source. Self-hosted MP4 (e.g. "/videos/build-explainer.mp4")
+   * renders as a native <video>; full URLs render in an iframe (YouTube/Vimeo).
+   * When omitted, shows the "coming soon" placeholder.
+   */
   videoUrl?: string;
+}
+
+function isSelfHostedMp4(url: string) {
+  return url.startsWith("/") || url.toLowerCase().endsWith(".mp4");
 }
 
 export function ExplainerVideo({
@@ -30,13 +38,23 @@ export function ExplainerVideo({
         className={`relative aspect-video w-full ${theme.heroGradient} flex items-center justify-center`}
       >
         {videoUrl ? (
-          <iframe
-            src={videoUrl}
-            title={title}
-            className="absolute inset-0 h-full w-full"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            allowFullScreen
-          />
+          isSelfHostedMp4(videoUrl) ? (
+            <video
+              src={videoUrl}
+              title={title}
+              controls
+              preload="metadata"
+              className="absolute inset-0 h-full w-full bg-black"
+            />
+          ) : (
+            <iframe
+              src={videoUrl}
+              title={title}
+              className="absolute inset-0 h-full w-full"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+            />
+          )
         ) : (
           <div className="flex flex-col items-center gap-3 text-white/90">
             <PlayCircle className="h-14 w-14 opacity-70" strokeWidth={1.25} />

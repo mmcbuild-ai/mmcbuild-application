@@ -71,6 +71,7 @@ export default async function QuotePage() {
 
       <ExplainerVideo
         module="quote"
+        videoUrl="/videos/quote-explainer.mp4"
         title="Cost-modelling MMC choices for your client"
         description="MMC = Modern Methods of Construction. Each type shifts cost off the site and into the factory — labour, transport, and programme assumptions all flip. MMC Quote estimates the delta vs. a traditional build, so you can put credible numbers in front of your client during design rather than after the documentation is locked."
         bullets={[

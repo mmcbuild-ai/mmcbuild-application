@@ -44,6 +44,7 @@ export default async function BuildPage() {
 
       <ExplainerVideo
         module="build"
+        videoUrl="/videos/build-explainer.mp4"
         title="Designing with MMC instead of retrofitting it"
         description="MMC = Modern Methods of Construction. Once your drawing set is locked, swapping in factory-built elements means redrawing — wall thicknesses, span tables, service routing all shift. MMC Build analyses your concept or schematic plans and tells you which methods would actually pay back on this project, while you can still change them."
         bullets={[

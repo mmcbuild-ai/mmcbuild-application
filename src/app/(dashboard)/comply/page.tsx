@@ -44,6 +44,7 @@ export default async function ComplyPage() {
 
       <ExplainerVideo
         module="comply"
+        videoUrl="/videos/comply-explainer.mp4"
         title="What MMC means for your design's NCC compliance"
         description="MMC stands for Modern Methods of Construction. Each MMC type — prefab, panelised, modular, hybrid — runs through its own NCC compliance pathway and certification trail. MMC Comply checks your drawing set against the right pathway before you submit, so a DA or CC doesn't get knocked back over the wrong evidence."
         bullets={[
