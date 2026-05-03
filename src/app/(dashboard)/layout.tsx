@@ -18,12 +18,25 @@ export default async function DashboardLayout({
 
   // Use db() for columns not yet in generated types (subscription_tier)
   const admin = db();
+  const monthYear = new Date().toISOString().slice(0, 7);
 
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("full_name, role, org_id")
-    .eq("user_id", user.id)
-    .single();
+  // Profile and current-month usage are independent — fetch in parallel.
+  const [profileRes, usageRes] = await Promise.all([
+    admin
+      .from("profiles")
+      .select("full_name, role, org_id")
+      .eq("user_id", user.id)
+      .single(),
+    admin
+      .from("usage_limits")
+      .select("run_count")
+      .eq("user_id", user.id)
+      .eq("month_year", monthYear)
+      .single(),
+  ]);
+
+  const profile = profileRes.data;
+  const runCount = usageRes.data?.run_count ?? 0;
 
   let orgName = "Organisation";
   let tier: string | null = "trial";
@@ -36,17 +49,6 @@ export default async function DashboardLayout({
     if (org?.name) orgName = org.name;
     if (org?.subscription_tier) tier = org.subscription_tier;
   }
-
-  // Get current month usage
-  let runCount = 0;
-  const monthYear = new Date().toISOString().slice(0, 7); // "2026-04"
-  const { data: usage } = await admin
-    .from("usage_limits")
-    .select("run_count")
-    .eq("user_id", user.id)
-    .eq("month_year", monthYear)
-    .single();
-  if (usage?.run_count) runCount = usage.run_count;
 
   return (
     <>
