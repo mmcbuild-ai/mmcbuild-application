@@ -34,36 +34,11 @@ export default async function ProjectsPage({
     <div className="space-y-6">
       {showTestingGuide && <TestingGuide />}
 
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Projects</h1>
-          <p className="text-muted-foreground">
-            Manage your construction projects
-          </p>
-        </div>
+      <ExplainerVideo module="projects" videoUrl="/videos/projects-explainer.mp4" />
+
+      <div className="flex justify-end">
         <CreateProjectDialog defaultOpen={autoCreate} />
       </div>
-
-      <ExplainerVideo
-        module="projects"
-        videoUrl="/videos/projects-explainer.mp4"
-        title="One project, every module — set up once, reuse everywhere"
-        description="Projects is the foundation of MMC Build. Address, design intent, and drawings are captured once and shared across Comply, Build, and Quote — no re-entering data, no version drift."
-        bullets={[
-          {
-            heading: "Auto-derived intelligence",
-            body: "Drop in the address; we auto-derive climate zone, wind region, and council from public data — no manual lookups.",
-          },
-          {
-            heading: "Multi-format plans",
-            body: "PDF, DWG, DXF, SketchUp and Revit exports all accepted. Plans are read once and reused by every module.",
-          },
-          {
-            heading: "Activate to analyse",
-            body: "Walk through the short questionnaire, then activate. After that every module on the sidebar can run on this project.",
-          },
-        ]}
-      />
 
       {projects && projects.length > 0 ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

@@ -11,32 +11,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Calculator, Plus, ArrowRight } from "lucide-react";
 import Link from "next/link";
-import { ModuleHero } from "@/components/shared/module-hero";
 import { ExplainerVideo } from "@/components/shared/explainer-video";
-
-function QuotePreviewCard() {
-  return (
-    <div className="bg-white/[0.08] border border-white/15 rounded-2xl backdrop-blur-xl p-6 shadow-2xl">
-      <div className="flex items-center gap-3 mb-4">
-        <Calculator className="w-5 h-5 text-white/70" />
-        <span className="text-base font-medium text-white/90">
-          AI Cost Analysis
-        </span>
-      </div>
-      <div className="space-y-3">
-        <div className="bg-white/[0.06] border border-white/10 rounded-xl px-5 py-4">
-          <p className="text-xs uppercase text-white/60">Base Cost</p>
-          <p className="text-2xl font-bold text-white">$485,000</p>
-        </div>
-        <div className="bg-white/[0.06] border border-white/10 rounded-xl px-5 py-4">
-          <p className="text-xs uppercase text-white/60">MMC Alternative</p>
-          <p className="text-2xl font-bold text-green-400">$445,000</p>
-          <p className="text-sm text-green-400">&#8595; 8% savings</p>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export default async function QuotePage() {
   const supabase = await createClient();
@@ -56,39 +31,8 @@ export default async function QuotePage() {
     .order("created_at", { ascending: false });
 
   return (
-    <div>
-      <ModuleHero
-        module="quote"
-        heading={
-          <>
-            <span className="text-violet-400">Intelligent</span> Quoting Made
-            Simple
-          </>
-        }
-        description="Generate itemised cost breakdowns using AI analysis. Compare traditional vs MMC construction costs instantly."
-        previewCard={<QuotePreviewCard />}
-      />
-
-      <ExplainerVideo
-        module="quote"
-        videoUrl="/videos/quote-explainer.mp4"
-        title="Cost-modelling MMC choices for your client"
-        description="MMC = Modern Methods of Construction. Each type shifts cost off the site and into the factory — labour, transport, and programme assumptions all flip. MMC Quote estimates the delta vs. a traditional build, so you can put credible numbers in front of your client during design rather than after the documentation is locked."
-        bullets={[
-          {
-            heading: "Factory vs site labour",
-            body: "Prefab and modular trade site labour for factory hours and crane days. Direction depends on labour market, distance to factory, and access.",
-          },
-          {
-            heading: "Programme savings",
-            body: "Off-site work runs in parallel with site prep. Quote models the time saved and the carrying-cost reduction your client banks (finance, prelims, supervision).",
-          },
-          {
-            heading: "Where it pays back",
-            body: "MMC isn't always cheaper per square metre — but it can shorten programmes by months. Quote shows total cost-of-build, so designers can frame the client conversation properly.",
-          },
-        ]}
-      />
+    <div className="space-y-6">
+      <ExplainerVideo module="quote" videoUrl="/videos/quote-explainer.mp4" />
 
       <div className="space-y-6">
         {projects && projects.length > 0 ? (
