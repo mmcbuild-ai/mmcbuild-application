@@ -11,6 +11,17 @@ export async function GET(request: Request) {
     const supabase = await createClient();
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
+    // Email link prefetchers (scanners, previewers) often hit the callback
+    // before the human, consuming the single-use code. The exchange then
+    // fails on the real click — but the session cookie from the first hit
+    // is already valid. If a session exists, treat this as success.
+    if (error) {
+      const { data: { user: existingUser } } = await supabase.auth.getUser();
+      if (existingUser) {
+        return NextResponse.redirect(`${origin}${redirect}`);
+      }
+    }
+
     if (!error && data.user) {
       // Check if user has a profile — if not, create org + profile (first-time signup)
       const { data: existingProfile } = await supabase

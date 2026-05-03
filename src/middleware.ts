@@ -62,6 +62,12 @@ export async function middleware(request: NextRequest) {
   if (user && AUTH_ROUTES.some((route) => pathname === route)) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
+    // Don't carry login/signup-only query params onto /dashboard.
+    // Notably ?error= from a stale failed callback would otherwise show
+    // up on the dashboard even though the user is authenticated.
+    url.searchParams.delete("error");
+    url.searchParams.delete("message");
+    url.searchParams.delete("redirect");
     return NextResponse.redirect(url);
   }
 
