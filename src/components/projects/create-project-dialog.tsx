@@ -30,7 +30,7 @@ export function CreateProjectDialog({ defaultOpen = false }: { defaultOpen?: boo
 
   const property = usePropertyOnboarding({
     supabaseUrl: process.env.NEXT_PUBLIC_PROPERTY_SERVICES_URL!,
-    supabaseAnonKey: process.env.NEXT_PUBLIC_PROPERTY_SERVICES_ANON_KEY!,
+    apiKey: process.env.NEXT_PUBLIC_PROPERTY_SERVICES_API_KEY!,
     product: "mmcbuild",
   });
 
