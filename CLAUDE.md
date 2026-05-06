@@ -22,10 +22,35 @@ To check your Jira tasks, you'll need to access Jira directly. If you'd like, I 
 <!-- END SESSION CONTEXT -->
 # MMC Build — Project Instructions
 
+> **Global guardrails apply.** Session behaviour, workflow contract, stop phrase
+> prohibitions, and quality self-checks are defined in `~/.claude/CLAUDE.md`.
+> Read that file before this one. The rules there are NON-NEGOTIABLE here.
+
+---
+
+## Risk Tier: REGULATED
+
+This project is in the REGULATED tier (mmcbuild). Rules:
+- Zero tolerance for convention drift
+- Mandatory read-before-edit on every file
+- No "simplest fix" shortcuts — compliance logic must be correct, not convenient
+- Flag any ambiguity rather than assume
+- Paywall and billing logic must be verified at both middleware (UX) AND Server
+  Action (correctness) — never assume the middleware guard is sufficient
+
+---
+
 ## What is this?
-AI-powered compliance and construction intelligence platform for Australian residential construction. Built for Global Buildtech Australia Pty Ltd (GBTA) on behalf of MMC Build Pty Ltd.
+
+AI-powered compliance and construction intelligence platform for Australian
+residential construction. Built for Global Buildtech Australia Pty Ltd (GBTA)
+on behalf of MMC Build Pty Ltd. Six live modules: Comply, Build, Quote, Direct,
+Train, Billing.
+
+---
 
 ## Tech Stack
+
 - **Frontend/API**: Next.js 16 (App Router, TypeScript strict, Tailwind CSS, shadcn/ui)
 - **Database**: Supabase (PostgreSQL + pgvector + Auth + Storage + RLS) — Sydney region
 - **Jobs**: Inngest (async AI pipelines, cron)
@@ -34,44 +59,156 @@ AI-powered compliance and construction intelligence platform for Australian resi
 - **Payments**: Stripe (test mode for MVP)
 - **Deployment**: Vercel
 
+---
+
 ## Key Commands
-- `pnpm dev` — Start dev server
-- `pnpm build` — Production build
-- `pnpm lint` — ESLint
-- `pnpm test` — Run vitest unit tests
-- `npx tsc --noEmit` — Type check
 
-## Architecture Notes
-- RLS enabled on every table — org-scoped access via `get_user_org_id()` helper
-- Server Components by default; Client Components only when needed
-- Server Actions for mutations
-- Inngest for any job > 5 seconds
-- All AI API keys server-side only
-- Zod for all input validation
-- Shared `db()` helper at `src/lib/supabase/db.ts` for tables not in generated types
-- Stripe billing: paywall at both middleware (UX) and Server Action (correctness)
-- All AI calls route through `callModel()` from `src/lib/ai/models/router.ts`
+```bash
+pnpm dev          # Start dev server
+pnpm build        # Production build
+pnpm lint         # ESLint
+pnpm test         # Run vitest unit tests
+pnpm test:e2e     # Run Playwright E2E tests
+npx tsc --noEmit  # Type check
+```
 
-## Six Modules
-1. MMC Comply — NCC compliance checking (Stage 2)
-2. MMC Build — Design optimisation (Stage 3)
-3. MMC Quote — Cost estimation (Stage 4)
-4. MMC Direct — Trade directory (Stage 5)
-5. MMC Train — Training modules (Stage 6)
-6. Billing — Stripe subscriptions (Stage 7)
+---
 
-## Current Status
-- MMC Comply — LIVE (NCC compliance AI + RAG pipeline)
-- MMC Build — LIVE (design optimisation, 3D viewer, system selection panel)
-- MMC Quote — LIVE (agentic cost estimation, supplier knowledge base)
-- MMC Direct — LIVE (trade/consultant directory)
-- MMC Train — LIVE (self-paced modules + progress tracking)
-- Billing — LIVE (Stripe test mode, 60-day free trial)
-- Current sprint: **v0.4.0** — see `.context/PROJECT_STATE.md` for details
+## Architecture — Mandatory Patterns
+
+Violating these patterns in this project is a convention violation, not a style
+choice. Read before editing any file in these paths.
+
+### AI Calls
+ALL AI calls MUST go through `callModel()` from `src/lib/ai/models/router.ts`.
+Never call Anthropic or OpenAI SDK directly from routes or server actions.
+The router handles model fallback, usage tracking, and cost estimation.
+
+### Database Access
+- Use the shared `db()` helper at `src/lib/supabase/db.ts` for tables not in
+  generated types
+- Use `createClient()` from `src/lib/supabase/server.ts` inside server
+  components and route handlers
+- Use `createAdminClient()` from `src/lib/supabase/admin.ts` ONLY in
+  server-side code where elevated access is explicitly required
+- NEVER import the admin client into a file that has or could have `"use client"`
+
+### Auth Pattern
+Every route handler that accesses user data MUST begin with:
+```typescript
+const { data: { user }, error } = await supabase.auth.getUser()
+if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+```
+Do not infer auth from session cookies alone. Always call `getUser()`.
+
+### Billing / Paywall
+Paywalls must be enforced at TWO layers:
+1. Middleware (`src/middleware.ts`) — for UX redirect
+2. Server Action or API Route — for correctness
+
+The middleware check is NOT sufficient alone. An attacker bypassing the
+middleware would hit an unguarded Server Action without the second layer.
+
+Pattern to follow:
+```typescript
+const usage = await checkAndIncrementUsage(orgId, 'comply')
+if (!usage.allowed) return { error: 'usage_limit_reached', limit: usage.limit }
+```
+
+### Input Validation
+All user inputs entering Server Actions or API routes MUST be validated with
+Zod before use. Validators live in `src/lib/validators/`. Do not write inline
+validation — add a schema to the validators directory.
+
+### Server vs Client Components
+- Default to Server Components
+- Use `"use client"` only when you need React state, browser APIs, or event
+  handlers
+- Never fetch data in a Client Component that could be fetched in a Server
+  Component and passed as props
+
+### Async Job Threshold
+Any operation expected to take > 5 seconds MUST use Inngest. Do not run
+long-lived work synchronously in route handlers. Route handlers have a 10s
+Vercel timeout.
+
+### PDF / Report Generation
+PDF generation uses `jspdf` + `jspdf-autotable`. Report versioning is tracked
+in `src/lib/report-versions.ts`. When modifying a report layout, increment the
+version constant and log the change reason.
+
+---
+
+## Security Rules (Project-Specific)
+
+These extend the global security rules, not replace them.
+
+### NCC / Compliance Content
+The compliance AI pipeline processes user-uploaded building plans. Treat all
+uploaded content as untrusted. The prompt injection guard at
+`src/lib/security-gate.ts` must be called before inserting user-derived content
+into any AI prompt. Do not bypass this gate for "efficiency".
+
+### Token-Based Endpoints
+`/api/remediation/[token]/**` uses time-limited tokens instead of Supabase
+auth. These endpoints are publicly accessible. Any changes to this area must:
+1. Preserve the expiry check (`expires_at`)
+2. Not log the token value
+3. Not widen the set of operations the token can perform
+
+### Webhook Verification
+Both GitHub (`/api/rd/webhook`) and Stripe (`/api/webhooks/stripe`) webhooks
+verify signatures before processing. Never remove or weaken signature
+verification. The pattern is: read raw body → verify → parse.
+
+---
+
+## Module Map
+
+| Module | Route | Stage | Status | Key Actions File | Inngest Function |
+|--------|-------|-------|--------|-----------------|-----------------|
+| MMC Comply | `/comply` | Stage 2 | LIVE | `src/app/(dashboard)/comply/actions.ts` | `run-compliance-check` |
+| MMC Build | `/build` | Stage 3 | LIVE | `src/app/(dashboard)/build/actions.ts` | `run-build-check` |
+| MMC Quote | `/quote` | Stage 4 | LIVE | `src/app/(dashboard)/quote/actions.ts` | `run-cost-estimate` |
+| MMC Direct | `/direct` | Stage 5 | LIVE | `src/app/(dashboard)/direct/actions.ts` | — |
+| MMC Train | `/train` | Stage 6 | LIVE | `src/app/(dashboard)/train/actions.ts` | `generate-training-content` |
+| Billing | `/billing` | Stage 7 | LIVE | `src/app/(dashboard)/billing/actions.ts` | — |
+
+**Current sprint: v0.4.0** — client feedback and iteration phase.
+See `.context/PROJECT_STATE.md` for blocking items and pending work.
+Check `gh issue list --label accept` for newly approved code items.
+
+---
 
 ## Testing
-- Framework: Vitest
-- Run: `pnpm test`
-- Test dir: `tests/unit/`, `tests/integration/`
-- When writing new functions, write a corresponding test
-- When fixing a bug, write a regression test
+
+- **Framework:** Vitest (unit), Playwright (E2E)
+- **Run unit:** `pnpm test`
+- **Run E2E:** `pnpm test:e2e`
+- **Test dirs:** `tests/unit/`, `tests/integration/`, `tests/e2e/`
+- Write a regression test for every bug fixed
+- Write a unit test for every new function in `src/lib/`
+- Target 30–40% coverage minimum
+
+---
+
+## Supabase / RLS
+
+- RLS is enabled on ALL tables. Never disable it, even for debugging.
+- If a query returns no rows unexpectedly, check the RLS policy before
+  assuming the data is missing.
+- The `get_user_org_id()` helper is used in policies for org-scoped access.
+  Do not replicate this logic manually.
+- Migrations live in `supabase/migrations/`. Write idempotent migrations only.
+
+---
+
+## Environment Variables
+
+See `.env.example` in the repo root for all required variables. Required groups:
+- `NEXT_PUBLIC_SUPABASE_*` — public Supabase config (safe for client)
+- `SUPABASE_SERVICE_ROLE_KEY` — server-side only, never expose to client
+- `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` — server-side only
+- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` — server-side only
+- `RESEND_API_KEY` — server-side only
+- `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY` — server-side only
