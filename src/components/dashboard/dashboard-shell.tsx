@@ -57,7 +57,7 @@ export function DashboardShell({
           role={role}
           orgName={orgName}
         />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        <main className="flex-1 overflow-y-auto px-6 pt-6 pb-24">{children}</main>
       </div>
     </div>
   );
