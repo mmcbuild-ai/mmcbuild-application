@@ -180,7 +180,7 @@ export function PlanDropzone({ projectId }: PlanDropzoneProps) {
               </label>
             </Button>
             <p className="mt-3 text-[11px] text-muted-foreground">
-              DWG files are converted to PDF for analysis automatically.
+              DWG files are converted to DXF automatically — layers and entities are preserved for analysis.
             </p>
           </>
         )}
