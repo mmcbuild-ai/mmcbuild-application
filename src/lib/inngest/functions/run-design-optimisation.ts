@@ -12,6 +12,7 @@ import {
 import type { DesignOptimisationResult } from "@/lib/ai/types";
 import { renderPdfPage } from "@/lib/build/spatial/pdf-to-image";
 import { extractSpatialLayout } from "@/lib/build/spatial/extractor";
+import { findFloorPlanPage } from "@/lib/build/spatial/page-classifier";
 import type { SpatialLayout } from "@/lib/build/spatial/types";
 import { createReportVersion } from "@/lib/report-versions";
 
@@ -74,10 +75,18 @@ export const runDesignOptimisation = inngest.createFunction(
       return { checkId: check.id, error: "No plan content" };
     }
 
-    // 3b. Extract spatial layout from plan PDF (for 3D viewer)
+    // 3b. Extract spatial layout from plan PDF (for 3D viewer + COLLADA export)
+    //
+    // Architectural plan sets are multi-page (cover → site → floor plans →
+    // elevations → ...). Page 1 is almost never the floor plan. We classify
+    // each page first (cheap Haiku Vision call, ~$0.001/page) and route the
+    // first floor-plan page through the high-resolution extractor. Pages
+    // beyond the first MAX_PAGES_TO_CLASSIFY are skipped — floor plans
+    // always live near the front.
+    //
+    // bucket name is "plan-uploads" (matches plan-dropzone.tsx upload target).
     const spatialLayout = await step.run("extract-spatial-layout", async () => {
       try {
-        // Get the plan file URL from storage
         const { data: plan } = await db()
           .from("plans")
           .select("file_path")
@@ -86,23 +95,32 @@ export const runDesignOptimisation = inngest.createFunction(
 
         if (!plan?.file_path) return null;
 
-        // Download the PDF from Supabase Storage
         const admin = createAdminClient();
         const { data: fileData } = await admin.storage
-          .from("plans")
+          .from("plan-uploads")
           .download(plan.file_path);
 
         if (!fileData) return null;
 
-        // Render first page to image
         const pdfBuffer = Buffer.from(await fileData.arrayBuffer());
-        const imageBase64 = await renderPdfPage(pdfBuffer, 1, 2.0);
+
+        const pick = await findFloorPlanPage(pdfBuffer);
+        const targetPage = pick.pageNumber ?? 1;
+        if (pick.pageNumber == null) {
+          console.warn(
+            `[run-design-optimisation] No floor plan page detected for check ${check.id} across ${pick.totalPagesRendered} inspected pages; falling back to page 1.`,
+          );
+        } else {
+          console.log(
+            `[run-design-optimisation] Floor plan detected on page ${pick.pageNumber} (inspected ${pick.totalPagesRendered} pages) for check ${check.id}.`,
+          );
+        }
+
+        const imageBase64 = await renderPdfPage(pdfBuffer, targetPage, 2.0);
         if (!imageBase64) return null;
 
-        // Extract spatial data using Claude Vision
         const layout = await extractSpatialLayout(imageBase64, "image/png");
 
-        // Store spatial layout on the design check
         if (layout) {
           await db()
             .from("design_checks")
