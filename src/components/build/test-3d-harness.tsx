@@ -234,6 +234,9 @@ export function Test3DHarness() {
             {result.pageUsed != null && result.detectedPage == null && (
               <p>Used PDF page {result.pageUsed}.</p>
             )}
+            {result.pdfPageCount != null && (
+              <p>PDF has {result.pdfPageCount} pages total.</p>
+            )}
           </div>
 
           <div className="rounded-lg border bg-white p-4">

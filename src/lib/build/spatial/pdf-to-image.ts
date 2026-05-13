@@ -35,6 +35,45 @@ export async function renderPdfPage(
 }
 
 /**
+ * Diagnostic variant: returns either the rendered image OR a surfaced error
+ * with detail, plus PDF page-count when available. Use this when callers need
+ * to know WHY rendering failed (e.g. the test harness). Production code can
+ * stay on `renderPdfPage` which swallows errors to keep the happy path simple.
+ */
+export async function renderPdfPageDetailed(
+  pdfBuffer: Uint8Array | Buffer,
+  pageNumber: number = 1,
+  scale: number = 2.0
+): Promise<
+  | { image: string; pageCount: number }
+  | { error: string; pageCount?: number }
+> {
+  try {
+    const { pdf } = await import("pdf-to-img");
+    const doc = await pdf(pdfBuffer, { scale });
+    const pageCount = doc.length;
+
+    if (pageNumber < 1 || pageNumber > pageCount) {
+      return {
+        error: `Page ${pageNumber} out of range (PDF has ${pageCount} pages)`,
+        pageCount,
+      };
+    }
+
+    const image = await doc.getPage(pageNumber);
+    return {
+      image: Buffer.from(image).toString("base64"),
+      pageCount,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : undefined;
+    console.error("PDF to image rendering failed:", message, stack);
+    return { error: message };
+  }
+}
+
+/**
  * Render all pages of a PDF to base64 PNG images.
  */
 export async function renderAllPdfPages(

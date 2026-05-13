@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { extractSpatialLayout } from "@/lib/build/spatial/extractor";
-import { renderPdfPage } from "@/lib/build/spatial/pdf-to-image";
+import { renderPdfPageDetailed } from "@/lib/build/spatial/pdf-to-image";
 import { findFloorPlanPage } from "@/lib/build/spatial/page-classifier";
 import { convertViaCloudConvert } from "@/lib/plans/dwg-converter";
 import {
@@ -18,6 +18,7 @@ export type Test3DResult = {
   detectedPage?: number;
   totalPagesInspected?: number;
   pageUsed?: number;
+  pdfPageCount?: number;
   kind?: PlanFileKind;
   convertedFrom?: PlanFileKind;
   error?: string;
@@ -127,21 +128,39 @@ export async function extractTest3D(input: {
         totalPagesInspected = pick.totalPagesRendered;
       }
 
-      const imageBase64 = await renderPdfPage(pdfBuffer, pageNumber, 2.0);
-      if (!imageBase64) {
-        return {
-          layout: null,
-          kind,
-          convertedFrom,
-          error: `Failed to render PDF page ${pageNumber}`,
-        };
+      let renderResult = await renderPdfPageDetailed(
+        pdfBuffer,
+        pageNumber,
+        2.0,
+      );
+
+      // Fall back to lower resolution if the high-scale render failed.
+      // Big architectural sets sometimes OOM at scale 2.0 but render fine at 1.0.
+      if ("error" in renderResult) {
+        const firstError = renderResult.error;
+        console.warn(
+          `[test-3d] scale=2.0 failed (${firstError}); retrying at scale=1.0`,
+        );
+        renderResult = await renderPdfPageDetailed(pdfBuffer, pageNumber, 1.0);
+        if ("error" in renderResult) {
+          return {
+            layout: null,
+            kind,
+            convertedFrom,
+            pageUsed: pageNumber,
+            pdfPageCount: renderResult.pageCount,
+            error: `Failed to render PDF page ${pageNumber}. scale=2.0 error: ${firstError}. scale=1.0 error: ${renderResult.error}`,
+          };
+        }
       }
-      const layout = await extractSpatialLayout(imageBase64, "image/png");
+
+      const layout = await extractSpatialLayout(renderResult.image, "image/png");
       return {
         layout,
         detectedPage,
         totalPagesInspected,
         pageUsed: pageNumber,
+        pdfPageCount: renderResult.pageCount,
         kind,
         convertedFrom,
       };
