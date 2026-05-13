@@ -12,10 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-const HUBSPOT_PORTAL_ID = "442558966";
-const HUBSPOT_FORM_ID = "9ef67321-b4cb-45b5-b3c1-e9d2301e0710";
-const HUBSPOT_URL = `https://api.hsforms.com/submissions/v3/integration/submit/${HUBSPOT_PORTAL_ID}/${HUBSPOT_FORM_ID}`;
+import type { LeadInput } from "@/lib/validators/lead";
 
 type Status = "idle" | "submitting" | "success" | "error";
 
@@ -43,17 +40,19 @@ const PHONE_PREFIXES = [
   { value: "+81", label: "🇯🇵 +81" },
 ];
 
+const initialForm = {
+  firstName: "",
+  lastName: "",
+  email: "",
+  phoneCountry: "+61",
+  phone: "",
+  company: "",
+  role: "",
+  message: "",
+};
+
 export default function ContactForm() {
-  const [form, setForm] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phoneCountry: "+61",
-    phone: "",
-    company: "",
-    role: "",
-    message: "",
-  });
+  const [form, setForm] = useState(initialForm);
   const [status, setStatus] = useState<Status>("idle");
 
   function update<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
@@ -63,39 +62,30 @@ export default function ContactForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setStatus("submitting");
+
+    const payload: LeadInput = {
+      formType: "contact",
+      firstName: form.firstName,
+      lastName: form.lastName,
+      email: form.email,
+      phoneCountry: form.phoneCountry,
+      phone: form.phone,
+      company: form.company,
+      role: form.role,
+      interest: "",
+      message: form.message,
+      sourcePage: typeof window !== "undefined" ? window.location.href : "",
+    };
+
     try {
-      const phoneNumber = form.phone ? `${form.phoneCountry} ${form.phone}` : "";
-      const res = await fetch(HUBSPOT_URL, {
+      const res = await fetch("/api/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fields: [
-            { name: "firstname", value: form.firstName },
-            { name: "lastname", value: form.lastName },
-            { name: "email", value: form.email },
-            { name: "phone", value: phoneNumber },
-            { name: "company", value: form.company },
-            { name: "jobrole", value: form.role },
-            { name: "message", value: form.message },
-          ],
-          context: {
-            pageUri: typeof window !== "undefined" ? window.location.href : "",
-            pageName: "Contact Us",
-          },
-        }),
+        body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error(`HubSpot ${res.status}`);
+      if (!res.ok) throw new Error(`Lead submit ${res.status}`);
       setStatus("success");
-      setForm({
-        firstName: "",
-        lastName: "",
-        email: "",
-        phoneCountry: "+61",
-        phone: "",
-        company: "",
-        role: "",
-        message: "",
-      });
+      setForm(initialForm);
     } catch (err) {
       console.error("Contact form submission failed", err);
       setStatus("error");
@@ -106,8 +96,18 @@ export default function ContactForm() {
     return (
       <div className="bg-green-50 border border-green-200 rounded-2xl p-8 text-center">
         <div className="h-16 w-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <svg className="h-8 w-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          <svg
+            className="h-8 w-8 text-green-600"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M5 13l4 4L19 7"
+            />
           </svg>
         </div>
         <h3 className="text-xl font-bold text-slate-900 mb-2">Thanks — we&apos;ll be in touch.</h3>
@@ -228,7 +228,8 @@ export default function ContactForm() {
 
       {status === "error" && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
-          There was an error submitting your form. Please try again or email admin@mmcbuild.com.au.
+          There was an error submitting your form. Please try again or email
+          admin@mmcbuild.com.au.
         </div>
       )}
 
