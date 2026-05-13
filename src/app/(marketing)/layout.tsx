@@ -22,6 +22,9 @@ export default function MarketingLayout({
             MMC Build
           </Link>
           <div className="hidden md:flex items-center gap-8 text-sm">
+            <Link href="/pricing" className="text-slate-600 hover:text-slate-900 transition-colors">
+              Pricing
+            </Link>
             <Link href="/about" className="text-slate-600 hover:text-slate-900 transition-colors">
               About
             </Link>
