@@ -1,10 +1,8 @@
 "use server";
 
-// Full-house orchestrator can make up to 8 Sonnet calls (classification +
-// floor plan + 4 elevations + section + schedule) with extended thinking
-// on the heavy ones. 5 min ceiling so the Vercel function doesn't time
-// out before all extractions complete.
-export const maxDuration = 300;
+// Note: maxDuration for this Server Action is configured on the page
+// route (src/app/(dashboard)/build/test-3d/page.tsx). Next.js's
+// "use server" files only allow async exports.
 
 import { createClient } from "@/lib/supabase/server";
 import { extractSpatialLayout } from "@/lib/build/spatial/extractor";
