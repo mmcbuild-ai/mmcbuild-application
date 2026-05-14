@@ -51,8 +51,16 @@ export async function extractFullHouse(
   pdfBase64: string,
   options?: { floorPlanPageOverride?: number },
 ): Promise<FullHouseExtraction> {
+  const t0 = Date.now();
+  console.log(
+    `[extractFullHouse] start — pdf base64 length ${pdfBase64.length} chars (~${Math.round(pdfBase64.length / 1024 / 1024)} MB)`,
+  );
+
   // 1. Classify all pages
   const classifications = await classifyAllPagesNative(pdfBase64);
+  console.log(
+    `[extractFullHouse] classifier returned ${classifications.length} pages at +${Date.now() - t0}ms`,
+  );
   if (classifications.length === 0) {
     return {
       layout: null,
@@ -81,7 +89,8 @@ export async function extractFullHouse(
   const schedulePage =
     classifications.find((c) => c.type === "schedule")?.pageNumber ?? null;
 
-  // 3. Fan out extractions in parallel
+  // 3. Fan out extractions in parallel — allSettled so a single failure
+  // (Anthropic rate limit, transient network) doesn't kill the whole run.
   const floorPlanPromise = floorPlanPage
     ? extractFloorPlanFromPdf(pdfBase64, { pageHint: floorPlanPage })
     : Promise.resolve(null);
@@ -95,16 +104,49 @@ export async function extractFullHouse(
     ? extractSchedule(pdfBase64, schedulePage)
     : Promise.resolve(null);
 
-  const [floorPlanResult, elevationResults, sectionResult, scheduleResult] =
-    await Promise.all([
-      floorPlanPromise,
-      Promise.all(elevationPromises),
-      sectionPromise,
-      schedulePromise,
-    ]);
+  const settled = await Promise.allSettled([
+    floorPlanPromise,
+    Promise.allSettled(elevationPromises),
+    sectionPromise,
+    schedulePromise,
+  ]);
+
+  const floorPlanResult =
+    settled[0].status === "fulfilled" ? settled[0].value : null;
+  if (settled[0].status === "rejected") {
+    console.error("[extractFullHouse] floor plan rejected:", settled[0].reason);
+  }
+
+  const elevationResults: (ElevationExtraction | null)[] =
+    settled[1].status === "fulfilled"
+      ? settled[1].value.map((r, i) => {
+          if (r.status === "fulfilled") return r.value;
+          console.error(
+            `[extractFullHouse] elevation page ${elevationPages[i]?.pageNumber} rejected:`,
+            r.reason,
+          );
+          return null;
+        })
+      : [];
+
+  const sectionResult =
+    settled[2].status === "fulfilled" ? settled[2].value : null;
+  if (settled[2].status === "rejected") {
+    console.error("[extractFullHouse] section rejected:", settled[2].reason);
+  }
+
+  const scheduleResult =
+    settled[3].status === "fulfilled" ? settled[3].value : null;
+  if (settled[3].status === "rejected") {
+    console.error("[extractFullHouse] schedule rejected:", settled[3].reason);
+  }
 
   const elevationsValid = elevationResults.filter(
     (e): e is ElevationExtraction => e != null && e.confidence > 0,
+  );
+
+  console.log(
+    `[extractFullHouse] extractions complete at +${Date.now() - t0}ms — floorPlan=${floorPlanResult?.layout ? "ok" : "fail"}, elevations=${elevationsValid.length}/${elevationPages.length}, section=${sectionResult ? "ok" : "none"}, schedule=${scheduleResult ? "ok" : "none"}`,
   );
 
   if (!floorPlanResult || !floorPlanResult.layout) {

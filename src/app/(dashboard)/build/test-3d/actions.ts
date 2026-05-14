@@ -1,5 +1,11 @@
 "use server";
 
+// Full-house orchestrator can make up to 8 Sonnet calls (classification +
+// floor plan + 4 elevations + section + schedule) with extended thinking
+// on the heavy ones. 5 min ceiling so the Vercel function doesn't time
+// out before all extractions complete.
+export const maxDuration = 300;
+
 import { createClient } from "@/lib/supabase/server";
 import { extractSpatialLayout } from "@/lib/build/spatial/extractor";
 import { extractFullHouse } from "@/lib/build/spatial/full-house-extractor";
