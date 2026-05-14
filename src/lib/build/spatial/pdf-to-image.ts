@@ -7,24 +7,13 @@
 
 import "server-only";
 
-// Polyfill DOMMatrix / ImageData / Path2D before pdf-to-img is loaded.
-// pdfjs-dist v5 (used by pdf-to-img) tries to require @napi-rs/canvas at
-// module-load time to polyfill these browser globals, but Vercel's
-// serverless function trace doesn't reliably include the native binary
-// when @napi-rs/canvas is only a transitive optional. Importing it
-// statically here is unambiguous to the bundler and lets us set the
-// globals before pdfjs ever evaluates the modules that use them.
-import * as napiCanvas from "@napi-rs/canvas";
-{
-  const g = globalThis as unknown as {
-    DOMMatrix?: unknown;
-    ImageData?: unknown;
-    Path2D?: unknown;
-  };
-  if (!g.DOMMatrix && napiCanvas.DOMMatrix) g.DOMMatrix = napiCanvas.DOMMatrix;
-  if (!g.ImageData && napiCanvas.ImageData) g.ImageData = napiCanvas.ImageData;
-  if (!g.Path2D && napiCanvas.Path2D) g.Path2D = napiCanvas.Path2D;
-}
+// NOTE: this module is currently used only by the production Inngest pipeline
+// (run-design-optimisation.ts). The test harness at /build/test-3d no longer
+// depends on local PDF rasterisation — it uses Anthropic native PDF support
+// via extractFloorPlanFromPdf(). Production migration to native PDF is a
+// follow-up; until then, this file may still hit the @napi-rs/canvas /
+// DOMMatrix bundling issue in production deploys. That failure is caught
+// non-fatally in run-design-optimisation.ts (spatial_layout left null).
 
 /**
  * Render the first page of a PDF to a base64-encoded PNG image.
