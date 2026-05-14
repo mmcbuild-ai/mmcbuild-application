@@ -21,17 +21,19 @@ export default function Test3DPage() {
         <p className="font-medium">Supported file types</p>
         <ul className="mt-2 space-y-1.5 text-zinc-700 list-disc pl-5">
           <li>
-            <strong>PDF</strong> &mdash; rendered to PNG via{" "}
-            <code>pdf-to-img</code>, then extracted via Claude Vision.
+            <strong>PDF</strong> &mdash; sent directly to Claude via the
+            Anthropic <code>document</code> content type. Claude reads the
+            multi-page PDF natively, finds the floor plan page, and extracts
+            the spatial layout in one call. Max 32&nbsp;MB raw / 100 pages.
           </li>
           <li>
-            <strong>PNG, JPG</strong> &mdash; direct to Vision.
+            <strong>PNG, JPG</strong> &mdash; direct to Vision (image content
+            type).
           </li>
           <li>
             <strong>RVT, SKP, DOC, DOCX, DWG</strong> &mdash; converted to PDF
             via CloudConvert (~$0.01&ndash;0.02 per file, ~30s&ndash;3 min
-            depending on size), then same path as PDF. This matches the
-            production pipeline; the harness is not a separate code path.
+            depending on size), then same native-PDF path as PDF above.
           </li>
           <li>
             <strong>WebP</strong> &mdash; not currently supported (extractor

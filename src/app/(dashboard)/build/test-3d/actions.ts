@@ -1,9 +1,10 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { extractSpatialLayout } from "@/lib/build/spatial/extractor";
-import { renderPdfPageDetailed } from "@/lib/build/spatial/pdf-to-image";
-import { findFloorPlanPage } from "@/lib/build/spatial/page-classifier";
+import {
+  extractSpatialLayout,
+  extractFloorPlanFromPdf,
+} from "@/lib/build/spatial/extractor";
 import { convertViaCloudConvert } from "@/lib/plans/dwg-converter";
 import {
   detectPlanKind,
@@ -115,52 +116,36 @@ export async function extractTest3D(input: {
     }
 
     if (pdfBuffer) {
+      // Native PDF path — Anthropic reads the PDF directly. Skips
+      // pdf-to-img / pdfjs-dist / @napi-rs/canvas entirely, which were
+      // failing in the Vercel serverless bundle (missing DOMMatrix).
       const requestedPage =
-        pageInput && pageInput.trim() !== "" ? Number(pageInput.trim()) : null;
-      let pageNumber = requestedPage;
-      let detectedPage: number | undefined;
-      let totalPagesInspected: number | undefined;
+        pageInput && pageInput.trim() !== ""
+          ? Number(pageInput.trim())
+          : undefined;
 
-      if (pageNumber == null) {
-        const pick = await findFloorPlanPage(pdfBuffer);
-        pageNumber = pick.pageNumber ?? 1;
-        detectedPage = pick.pageNumber ?? 1;
-        totalPagesInspected = pick.totalPagesRendered;
+      const pdfBase64 = pdfBuffer.toString("base64");
+      const result = await extractFloorPlanFromPdf(pdfBase64, {
+        pageHint: requestedPage,
+      });
+
+      if (result.error || !result.layout) {
+        return {
+          layout: null,
+          kind,
+          convertedFrom,
+          detectedPage: result.detectedPage ?? undefined,
+          pdfPageCount: result.totalPages ?? undefined,
+          error: result.error ?? "PDF extraction returned no layout",
+        };
       }
 
-      let renderResult = await renderPdfPageDetailed(
-        pdfBuffer,
-        pageNumber,
-        2.0,
-      );
-
-      // Fall back to lower resolution if the high-scale render failed.
-      // Big architectural sets sometimes OOM at scale 2.0 but render fine at 1.0.
-      if ("error" in renderResult) {
-        const firstError = renderResult.error;
-        console.warn(
-          `[test-3d] scale=2.0 failed (${firstError}); retrying at scale=1.0`,
-        );
-        renderResult = await renderPdfPageDetailed(pdfBuffer, pageNumber, 1.0);
-        if ("error" in renderResult) {
-          return {
-            layout: null,
-            kind,
-            convertedFrom,
-            pageUsed: pageNumber,
-            pdfPageCount: renderResult.pageCount,
-            error: `Failed to render PDF page ${pageNumber}. scale=2.0 error: ${firstError}. scale=1.0 error: ${renderResult.error}`,
-          };
-        }
-      }
-
-      const layout = await extractSpatialLayout(renderResult.image, "image/png");
       return {
-        layout,
-        detectedPage,
-        totalPagesInspected,
-        pageUsed: pageNumber,
-        pdfPageCount: renderResult.pageCount,
+        layout: result.layout,
+        detectedPage:
+          requestedPage == null ? (result.detectedPage ?? undefined) : undefined,
+        pageUsed: requestedPage ?? (result.detectedPage ?? undefined),
+        pdfPageCount: result.totalPages ?? undefined,
         kind,
         convertedFrom,
       };
