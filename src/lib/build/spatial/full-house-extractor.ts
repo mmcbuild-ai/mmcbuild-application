@@ -49,6 +49,7 @@ const ELEVATION_TYPES = new Set([
 
 export async function extractFullHouse(
   pdfBase64: string,
+  options?: { floorPlanPageOverride?: number },
 ): Promise<FullHouseExtraction> {
   // 1. Classify all pages
   const classifications = await classifyAllPagesNative(pdfBase64);
@@ -65,8 +66,9 @@ export async function extractFullHouse(
     };
   }
 
-  // 2. Find pages by type
+  // 2. Find pages by type. Manual override wins.
   const floorPlanPage =
+    options?.floorPlanPageOverride ??
     classifications.find((c) => c.type === "floor_plan_ground")?.pageNumber ??
     classifications.find((c) => c.type === "floor_plan_upper")?.pageNumber ??
     null;

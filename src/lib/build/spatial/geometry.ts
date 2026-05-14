@@ -6,7 +6,13 @@
  */
 
 import * as THREE from "three";
-import type { SpatialLayout, Wall, Room, Opening, Point2D } from "./types";
+import type {
+  SpatialLayout,
+  Wall,
+  Room,
+  Opening,
+  Point2D,
+} from "./types";
 
 // Colour palette
 const COLOURS = {
@@ -18,7 +24,27 @@ const COLOURS = {
   window: 0x87ceeb,
   ceiling: 0xfafafa,
   suggestion_highlight: 0x14b8a6, // teal-500
+  roof_default: 0x3a3a3a, // Colorbond Monument-ish
 };
+
+// Cladding name → fallback hex (used when cladding is named but no colour given)
+const CLADDING_COLOURS: Record<string, number> = {
+  brick_veneer: 0xa85b3a,
+  weatherboard: 0xe8dcc8,
+  render: 0xece8e0,
+  hebel: 0xd8d4cc,
+  metal_cladding: 0x6b6b6b,
+  fibre_cement: 0xc8c4bc,
+  mixed: 0xb0b0b0,
+};
+
+function parseHexColour(hex: string | undefined, fallback: number): number {
+  if (!hex) return fallback;
+  const cleaned = hex.replace("#", "").trim();
+  if (cleaned.length !== 6) return fallback;
+  const parsed = parseInt(cleaned, 16);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
 
 // Room type → floor colour
 const ROOM_COLOURS: Record<string, number> = {
@@ -54,14 +80,39 @@ function wallMidpoint(wall: Wall): Point2D {
 
 /**
  * Build a single wall mesh (extruded rectangle).
+ *
+ * Resolves colour for external walls in priority order:
+ *   1. wall.exterior_colour (hex)
+ *   2. layout.materials.wall_colour (hex)
+ *   3. CLADDING_COLOURS[wall.cladding ?? layout.materials.wall_default]
+ *   4. COLOURS.wall_external default
+ *
+ * Internal and party walls always use the plain palette colour.
  */
-function buildWall(wall: Wall, height: number): THREE.Mesh {
+function buildWall(
+  wall: Wall,
+  defaultHeight: number,
+  layoutMaterials?: SpatialLayout["materials"],
+): THREE.Mesh {
   const length = wallLength(wall);
   const thickness = wall.thickness || 0.09;
+  const height = wall.height_m && wall.height_m > 0 ? wall.height_m : defaultHeight;
   const geometry = new THREE.BoxGeometry(length, height, thickness);
 
-  const colourKey = `wall_${wall.type}` as keyof typeof COLOURS;
-  const colour = COLOURS[colourKey] || COLOURS.wall_external;
+  let colour: number;
+  if (wall.type === "external") {
+    const explicitHex = wall.exterior_colour ?? layoutMaterials?.wall_colour;
+    if (explicitHex) {
+      colour = parseHexColour(explicitHex, COLOURS.wall_external);
+    } else {
+      const cladding = wall.cladding ?? layoutMaterials?.wall_default;
+      colour = (cladding && CLADDING_COLOURS[cladding]) || COLOURS.wall_external;
+    }
+  } else {
+    const colourKey = `wall_${wall.type}` as keyof typeof COLOURS;
+    colour = COLOURS[colourKey] || COLOURS.wall_internal;
+  }
+
   const material = new THREE.MeshStandardMaterial({
     color: colour,
     roughness: 0.8,
@@ -72,9 +123,6 @@ function buildWall(wall: Wall, height: number): THREE.Mesh {
   const mid = wallMidpoint(wall);
   const angle = wallAngle(wall);
 
-  // Position at midpoint, half height up, rotated to match wall direction
-  // Three.js: x = right, y = up, z = towards camera
-  // Our coords: x = right, y = depth (into screen)
   mesh.position.set(mid.x, height / 2, mid.y);
   mesh.rotation.y = -angle;
 
@@ -164,6 +212,296 @@ function buildOpening(opening: Opening, wallHeight: number, walls: Wall[]): THRE
 }
 
 /**
+ * Build a roof mesh based on the SpatialLayout.roof spec.
+ *
+ * Approximates the roof from the building's bounding box — for non-rectangular
+ * footprints (L-shapes, T-shapes) this over-covers slightly; tweaking is a
+ * v2 refinement. Returns null if no roof spec is present.
+ *
+ * Coordinate system: same as walls — x = right, z = depth (mapped from layout y).
+ * baseHeight = top of the wall (where the roof starts).
+ */
+function buildRoof(
+  layout: SpatialLayout,
+  baseHeight: number,
+): THREE.Object3D | null {
+  const roof = layout.roof;
+  if (!roof) return null;
+
+  const eave = Math.max(0, roof.eave_overhang_m ?? 0);
+  const minX = layout.bounds.min.x - eave;
+  const maxX = layout.bounds.max.x + eave;
+  const minY = layout.bounds.min.y - eave;
+  const maxY = layout.bounds.max.y + eave;
+
+  const pitchRad = Math.max(0, (roof.pitch_deg ?? 22.5)) * (Math.PI / 180);
+
+  const colour = parseHexColour(
+    roof.colour ?? layout.materials?.roof_colour,
+    COLOURS.roof_default,
+  );
+  const material = new THREE.MeshStandardMaterial({
+    color: colour,
+    roughness: 0.6,
+    metalness: 0.2,
+    side: THREE.DoubleSide,
+  });
+
+  const form = roof.form ?? "gable";
+
+  switch (form) {
+    case "flat":
+      return buildFlatRoof(minX, maxX, minY, maxY, baseHeight, material);
+    case "skillion":
+      return buildSkillionRoof(minX, maxX, minY, maxY, baseHeight, pitchRad, material);
+    case "hip":
+      return buildHipRoof(minX, maxX, minY, maxY, baseHeight, pitchRad, material);
+    case "mansard":
+    case "complex":
+    case "gable":
+    default:
+      return buildGableRoof(minX, maxX, minY, maxY, baseHeight, pitchRad, material);
+  }
+}
+
+function buildFlatRoof(
+  minX: number,
+  maxX: number,
+  minY: number,
+  maxY: number,
+  baseHeight: number,
+  material: THREE.Material,
+): THREE.Mesh {
+  const W = maxX - minX;
+  const D = maxY - minY;
+  const thickness = 0.15;
+  const geometry = new THREE.BoxGeometry(W, thickness, D);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set((minX + maxX) / 2, baseHeight + thickness / 2, (minY + maxY) / 2);
+  mesh.userData = { type: "roof", form: "flat" };
+  return mesh;
+}
+
+function buildSkillionRoof(
+  minX: number,
+  maxX: number,
+  minY: number,
+  maxY: number,
+  baseHeight: number,
+  pitchRad: number,
+  material: THREE.Material,
+): THREE.Mesh {
+  // Wedge: low edge at minY (front), high edge at maxY (back)
+  const D = maxY - minY;
+  const ridgeHeight = baseHeight + D * Math.tan(pitchRad);
+
+  // 8 vertices for a wedge (prism with sloped top)
+  const verts = new Float32Array([
+    // bottom 4 (at baseHeight)
+    minX, baseHeight, minY,  // 0
+    maxX, baseHeight, minY,  // 1
+    maxX, baseHeight, maxY,  // 2
+    minX, baseHeight, maxY,  // 3
+    // top 4 — front edge at baseHeight, back edge at ridgeHeight
+    minX, baseHeight, minY,        // 4 (=0, front-bottom = front-top)
+    maxX, baseHeight, minY,        // 5 (=1)
+    maxX, ridgeHeight, maxY,       // 6
+    minX, ridgeHeight, maxY,       // 7
+  ]);
+
+  // Triangles (CCW from outside)
+  const idx = [
+    // sloped top
+    4, 6, 5,  4, 7, 6,
+    // front (vertical, at minY — zero-height triangles, skip if degenerate)
+    // back (rectangle at maxY, from baseHeight to ridgeHeight)
+    3, 2, 6,  3, 6, 7,
+    // left (triangle at minX)
+    0, 3, 7,  0, 7, 4,
+    // right (triangle at maxX)
+    1, 5, 6,  1, 6, 2,
+    // bottom (so interior view doesn't see through)
+    0, 1, 2,  0, 2, 3,
+  ];
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute("position", new THREE.BufferAttribute(verts, 3));
+  geom.setIndex(idx);
+  geom.computeVertexNormals();
+  const mesh = new THREE.Mesh(geom, material);
+  mesh.userData = { type: "roof", form: "skillion" };
+  return mesh;
+}
+
+function buildGableRoof(
+  minX: number,
+  maxX: number,
+  minY: number,
+  maxY: number,
+  baseHeight: number,
+  pitchRad: number,
+  material: THREE.Material,
+): THREE.Mesh {
+  const W = maxX - minX;
+  const D = maxY - minY;
+  // Ridge runs along the longer axis
+  const ridgeAlongX = W >= D;
+  const span = Math.min(W, D); // shorter span = rafter run
+  const ridgeHeight = baseHeight + (span / 2) * Math.tan(pitchRad);
+
+  let verts: Float32Array;
+  let idx: number[];
+
+  if (ridgeAlongX) {
+    // Ridge runs east-west at y = (minY + maxY) / 2
+    const midY = (minY + maxY) / 2;
+    verts = new Float32Array([
+      minX, baseHeight, minY,  // 0 — front-left-bottom
+      maxX, baseHeight, minY,  // 1 — front-right-bottom
+      maxX, baseHeight, maxY,  // 2 — back-right-bottom
+      minX, baseHeight, maxY,  // 3 — back-left-bottom
+      minX, ridgeHeight, midY, // 4 — left ridge end
+      maxX, ridgeHeight, midY, // 5 — right ridge end
+    ]);
+    idx = [
+      // front slope (0,1,5,4)
+      0, 1, 5,  0, 5, 4,
+      // back slope (3,2,5,4) — note normal direction
+      3, 4, 5,  3, 5, 2,
+      // left gable triangle (0,4,3)
+      0, 4, 3,
+      // right gable triangle (1,2,5)
+      1, 2, 5,
+      // bottom
+      0, 1, 2,  0, 2, 3,
+    ];
+  } else {
+    // Ridge runs north-south at x = (minX + maxX) / 2
+    const midX = (minX + maxX) / 2;
+    verts = new Float32Array([
+      minX, baseHeight, minY,  // 0
+      maxX, baseHeight, minY,  // 1
+      maxX, baseHeight, maxY,  // 2
+      minX, baseHeight, maxY,  // 3
+      midX, ridgeHeight, minY, // 4 — front ridge end
+      midX, ridgeHeight, maxY, // 5 — back ridge end
+    ]);
+    idx = [
+      // left slope (0,4,5,3)
+      0, 4, 5,  0, 5, 3,
+      // right slope (1,2,5,4)
+      1, 5, 4,  1, 2, 5,
+      // front gable triangle (0,1,4)
+      0, 1, 4,
+      // back gable triangle (3,5,2)
+      3, 5, 2,
+      // bottom
+      0, 1, 2,  0, 2, 3,
+    ];
+  }
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute("position", new THREE.BufferAttribute(verts, 3));
+  geom.setIndex(idx);
+  geom.computeVertexNormals();
+  const mesh = new THREE.Mesh(geom, material);
+  mesh.userData = { type: "roof", form: "gable" };
+  return mesh;
+}
+
+function buildHipRoof(
+  minX: number,
+  maxX: number,
+  minY: number,
+  maxY: number,
+  baseHeight: number,
+  pitchRad: number,
+  material: THREE.Material,
+): THREE.Mesh {
+  const W = maxX - minX;
+  const D = maxY - minY;
+  const span = Math.min(W, D);
+  const ridgeHeight = baseHeight + (span / 2) * Math.tan(pitchRad);
+
+  // Hip with ridge: shorter axis collapses to apex line, longer axis has ridge.
+  // Ridge length = longer - shorter (so the two ends are equal-pitch hips).
+  let r1x: number, r1z: number, r2x: number, r2z: number;
+  if (W >= D) {
+    // Ridge runs east-west, centred on Y
+    const midY = (minY + maxY) / 2;
+    const ridgeLen = W - D;
+    const cx = (minX + maxX) / 2;
+    r1x = cx - ridgeLen / 2;
+    r1z = midY;
+    r2x = cx + ridgeLen / 2;
+    r2z = midY;
+  } else {
+    // Ridge runs north-south, centred on X
+    const midX = (minX + maxX) / 2;
+    const ridgeLen = D - W;
+    const cz = (minY + maxY) / 2;
+    r1x = midX;
+    r1z = cz - ridgeLen / 2;
+    r2x = midX;
+    r2z = cz + ridgeLen / 2;
+  }
+
+  const verts = new Float32Array([
+    minX, baseHeight, minY,    // 0
+    maxX, baseHeight, minY,    // 1
+    maxX, baseHeight, maxY,    // 2
+    minX, baseHeight, maxY,    // 3
+    r1x,  ridgeHeight, r1z,    // 4 — ridge end 1 (front or left)
+    r2x,  ridgeHeight, r2z,    // 5 — ridge end 2 (back or right)
+  ]);
+
+  // Four slopes meeting at the ridge / apex line:
+  // For W >= D (ridge east-west, r1 left, r2 right):
+  //   front slope: 0,1,5,4 (but 4 is leftish, 5 rightish — need to orient)
+  // For W < D, the ridge runs N-S
+  // Triangulation that works for both: define the four hip planes connecting
+  // each footprint edge to the ridge segment.
+  let idx: number[];
+  if (W >= D) {
+    // Ridge horizontal (along X), r1 at left, r2 at right
+    idx = [
+      // front slope (along minY edge): 0,1 -> 5,4 (front edge to ridge)
+      0, 1, 5,  0, 5, 4,
+      // back slope (along maxY edge): 3,2 -> 5,4
+      3, 4, 5,  3, 5, 2,
+      // left hip (triangle from 0,3 to ridge end 4)
+      0, 4, 3,
+      // right hip (triangle from 1,2 to ridge end 5)
+      1, 2, 5,
+      // bottom
+      0, 1, 2,  0, 2, 3,
+    ];
+  } else {
+    // Ridge vertical (along Z), r1 at front (min y), r2 at back (max y)
+    idx = [
+      // left slope (along minX edge): 0,3 -> 5,4
+      0, 4, 5,  0, 5, 3,
+      // right slope (along maxX edge): 1,2 -> 5,4
+      1, 5, 4,  1, 2, 5,
+      // front hip (triangle from 0,1 to ridge end 4)
+      0, 1, 4,
+      // back hip (triangle from 3,5,2)
+      3, 5, 2,
+      // bottom
+      0, 1, 2,  0, 2, 3,
+    ];
+  }
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute("position", new THREE.BufferAttribute(verts, 3));
+  geom.setIndex(idx);
+  geom.computeVertexNormals();
+  const mesh = new THREE.Mesh(geom, material);
+  mesh.userData = { type: "roof", form: "hip" };
+  return mesh;
+}
+
+/**
  * Build a ground plane.
  */
 function buildGround(bounds: SpatialLayout["bounds"]): THREE.Mesh {
@@ -220,11 +558,32 @@ export function buildSuggestionHighlight(
 }
 
 /**
+ * Compute total exterior wall height from optional storey_details.
+ * Falls back to layout.wall_height (or 2.4) when storey_details is absent.
+ * Used so a 2-storey building extrudes walls to the correct full height.
+ */
+function totalWallHeight(layout: SpatialLayout): number {
+  if (layout.storey_details && layout.storey_details.length > 0) {
+    const slabThickness = 0.2; // m between floors
+    const total = layout.storey_details.reduce(
+      (sum, s) => sum + (s.floor_to_ceiling_m || 2.4),
+      0,
+    );
+    return total + slabThickness * (layout.storey_details.length - 1);
+  }
+  return layout.wall_height || 2.4;
+}
+
+/**
  * Main entry point: build complete 3D scene from spatial layout.
+ *
+ * Order: ground → floors → walls → openings → roof. Roof sits on top of
+ * the tallest wall (totalWallHeight); each wall can override height via
+ * wall.height_m.
  */
 export function buildFloorPlan3D(layout: SpatialLayout): THREE.Group {
   const group = new THREE.Group();
-  const wallHeight = layout.wall_height || 2.4;
+  const wallHeight = totalWallHeight(layout);
 
   // Ground plane
   group.add(buildGround(layout.bounds));
@@ -234,9 +593,9 @@ export function buildFloorPlan3D(layout: SpatialLayout): THREE.Group {
     group.add(buildFloor(room));
   }
 
-  // Walls
+  // Walls — pass materials so external walls can pick up cladding colour
   for (const wall of layout.walls) {
-    group.add(buildWall(wall, wallHeight));
+    group.add(buildWall(wall, wallHeight, layout.materials));
   }
 
   // Openings (doors and windows)
@@ -244,6 +603,10 @@ export function buildFloorPlan3D(layout: SpatialLayout): THREE.Group {
     const mesh = buildOpening(opening, wallHeight, layout.walls);
     if (mesh) group.add(mesh);
   }
+
+  // Roof (if present) — sits on top of the wall height
+  const roof = buildRoof(layout, wallHeight);
+  if (roof) group.add(roof);
 
   // Centre the model on origin for easier camera positioning
   const centreX = layout.bounds.width / 2;

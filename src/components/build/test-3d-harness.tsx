@@ -226,16 +226,54 @@ export function Test3DHarness() {
               </p>
             )}
             {result.detectedPage != null && (
-              <p>
-                Auto-detected floor plan on page {result.detectedPage}{" "}
-                (inspected {result.totalPagesInspected} pages).
-              </p>
+              <p>Auto-detected floor plan on page {result.detectedPage}.</p>
             )}
             {result.pageUsed != null && result.detectedPage == null && (
               <p>Used PDF page {result.pageUsed}.</p>
             )}
             {result.pdfPageCount != null && (
               <p>PDF has {result.pdfPageCount} pages total.</p>
+            )}
+            {result.elevationsExtracted != null &&
+              result.elevationsExtracted > 0 && (
+                <p>
+                  Extracted roof + cladding from{" "}
+                  <strong>{result.elevationsExtracted}</strong> elevation
+                  page(s).
+                </p>
+              )}
+            {result.sectionPage != null && (
+              <p>
+                Extracted storey heights from section page{" "}
+                <strong>{result.sectionPage}</strong>.
+              </p>
+            )}
+            {result.schedulePage != null && (
+              <p>
+                Extracted material defaults from schedule page{" "}
+                <strong>{result.schedulePage}</strong>.
+              </p>
+            )}
+            {result.layout.roof && (
+              <p>
+                Roof: <strong>{result.layout.roof.form}</strong>, pitch{" "}
+                {result.layout.roof.pitch_deg?.toFixed(1)}°, eave{" "}
+                {result.layout.roof.eave_overhang_m?.toFixed(2)} m.
+              </p>
+            )}
+            {result.classifications && result.classifications.length > 0 && (
+              <details className="mt-1">
+                <summary className="cursor-pointer text-zinc-500 hover:text-zinc-700">
+                  Page classifications ({result.classifications.length})
+                </summary>
+                <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 sm:grid-cols-3">
+                  {result.classifications.map((c) => (
+                    <span key={c.pageNumber} className="font-mono text-[10px]">
+                      p{c.pageNumber}: {c.type}
+                    </span>
+                  ))}
+                </div>
+              </details>
             )}
           </div>
 

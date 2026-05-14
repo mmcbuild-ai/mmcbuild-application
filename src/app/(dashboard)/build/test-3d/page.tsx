@@ -4,6 +4,12 @@ export const metadata = {
   title: "3D Extractor Test Harness",
 };
 
+// Full-house orchestrator can make up to 1 classification + 1 floor plan +
+// 4 elevations + 1 section + 1 schedule = 8 Sonnet calls (with extended
+// thinking on the heavy ones). Allow 5 min so the server action doesn't
+// time out before all pages are extracted.
+export const maxDuration = 300;
+
 export default function Test3DPage() {
   return (
     <div className="max-w-5xl space-y-6">

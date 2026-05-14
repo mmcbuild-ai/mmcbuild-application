@@ -1,10 +1,8 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import {
-  extractSpatialLayout,
-  extractFloorPlanFromPdf,
-} from "@/lib/build/spatial/extractor";
+import { extractSpatialLayout } from "@/lib/build/spatial/extractor";
+import { extractFullHouse } from "@/lib/build/spatial/full-house-extractor";
 import { convertViaCloudConvert } from "@/lib/plans/dwg-converter";
 import {
   detectPlanKind,
@@ -13,6 +11,7 @@ import {
   type PlanFileKind,
 } from "@/lib/plans/file-kind";
 import type { SpatialLayout } from "@/lib/build/spatial/types";
+import type { PageTypeClassification } from "@/lib/build/spatial/page-classifier";
 
 export type Test3DResult = {
   layout: SpatialLayout | null;
@@ -23,6 +22,14 @@ export type Test3DResult = {
   kind?: PlanFileKind;
   convertedFrom?: PlanFileKind;
   error?: string;
+  /** v2-v4 — page-type classifications across the whole PDF. */
+  classifications?: PageTypeClassification[];
+  /** v2-v4 — number of elevation pages that contributed roof/cladding data. */
+  elevationsExtracted?: number;
+  /** v2-v4 — section page used for storey heights (if any). */
+  sectionPage?: number;
+  /** v2-v4 — schedule page used for materials (if any). */
+  schedulePage?: number;
 };
 
 export async function extractTest3D(input: {
@@ -116,17 +123,17 @@ export async function extractTest3D(input: {
     }
 
     if (pdfBuffer) {
-      // Native PDF path — Anthropic reads the PDF directly. Skips
-      // pdf-to-img / pdfjs-dist / @napi-rs/canvas entirely, which were
-      // failing in the Vercel serverless bundle (missing DOMMatrix).
+      // Full-house orchestrator path — classifies all pages, fans out to
+      // floor plan + elevations + section + schedule extractors in parallel,
+      // merges into one SpatialLayout with roof + materials + storey data.
       const requestedPage =
         pageInput && pageInput.trim() !== ""
           ? Number(pageInput.trim())
           : undefined;
 
       const pdfBase64 = pdfBuffer.toString("base64");
-      const result = await extractFloorPlanFromPdf(pdfBase64, {
-        pageHint: requestedPage,
+      const result = await extractFullHouse(pdfBase64, {
+        floorPlanPageOverride: requestedPage,
       });
 
       if (result.error || !result.layout) {
@@ -134,8 +141,9 @@ export async function extractTest3D(input: {
           layout: null,
           kind,
           convertedFrom,
-          detectedPage: result.detectedPage ?? undefined,
+          detectedPage: result.floorPlanPage ?? undefined,
           pdfPageCount: result.totalPages ?? undefined,
+          classifications: result.classifications,
           error: result.error ?? "PDF extraction returned no layout",
         };
       }
@@ -143,11 +151,15 @@ export async function extractTest3D(input: {
       return {
         layout: result.layout,
         detectedPage:
-          requestedPage == null ? (result.detectedPage ?? undefined) : undefined,
-        pageUsed: requestedPage ?? (result.detectedPage ?? undefined),
+          requestedPage == null ? (result.floorPlanPage ?? undefined) : undefined,
+        pageUsed: requestedPage ?? (result.floorPlanPage ?? undefined),
         pdfPageCount: result.totalPages ?? undefined,
         kind,
         convertedFrom,
+        classifications: result.classifications,
+        elevationsExtracted: result.elevationsExtracted.length,
+        sectionPage: result.sectionExtracted?.pageNumber,
+        schedulePage: result.scheduleExtracted?.pageNumber,
       };
     }
 
