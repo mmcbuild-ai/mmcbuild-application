@@ -13,6 +13,7 @@
  */
 
 import "server-only";
+import { PDFDocument } from "pdf-lib";
 import {
   classifyAllPagesNative,
   type PageTypeClassification,
@@ -27,6 +28,27 @@ import {
   type ScheduleExtraction,
 } from "./extractor";
 import type { SpatialLayout, RoofForm } from "./types";
+
+/**
+ * Extract a single page from a multi-page PDF and return it as its own
+ * base64-encoded PDF document. Used so per-page extractors only carry
+ * the page they need (typically 200-500 KB vs 9-12 MB for the full set).
+ *
+ * Reuses a parsed source document across all calls in a run.
+ */
+async function singlePagePdfBase64(
+  sourceDoc: PDFDocument,
+  pageNumber: number,
+): Promise<string | null> {
+  const totalPages = sourceDoc.getPageCount();
+  if (pageNumber < 1 || pageNumber > totalPages) return null;
+
+  const out = await PDFDocument.create();
+  const [copied] = await out.copyPages(sourceDoc, [pageNumber - 1]);
+  out.addPage(copied);
+  const bytes = await out.save();
+  return Buffer.from(bytes).toString("base64");
+}
 
 export type FullHouseExtraction = {
   layout: SpatialLayout | null;
@@ -89,19 +111,73 @@ export async function extractFullHouse(
   const schedulePage =
     classifications.find((c) => c.type === "schedule")?.pageNumber ?? null;
 
-  // 3. Fan out extractions in parallel — allSettled so a single failure
-  // (Anthropic rate limit, transient network) doesn't kill the whole run.
-  const floorPlanPromise = floorPlanPage
-    ? extractFloorPlanFromPdf(pdfBase64, { pageHint: floorPlanPage })
-    : Promise.resolve(null);
-  const elevationPromises = elevationPages.map((p) =>
-    extractElevation(pdfBase64, p.pageNumber),
+  // 3. Parse the full PDF once and split out per-page PDFs for each
+  // extraction. Each per-page extractor receives only its page (~200-500 KB)
+  // instead of the full 9-12 MB set. Massive reduction in outbound payload
+  // and concurrent connection size to Anthropic.
+  let sourceDoc: PDFDocument;
+  try {
+    const pdfBytes = Buffer.from(pdfBase64, "base64");
+    sourceDoc = await PDFDocument.load(pdfBytes, {
+      ignoreEncryption: true,
+    });
+  } catch (err) {
+    console.error("[extractFullHouse] failed to parse source PDF:", err);
+    return {
+      layout: null,
+      classifications,
+      floorPlanPage,
+      elevationsExtracted: [],
+      sectionExtracted: null,
+      scheduleExtracted: null,
+      totalPages: classifications.length,
+      error: `pdf-lib could not parse the source PDF: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  const splitT = Date.now();
+  const [floorPlanPageBase64, sectionPageBase64, schedulePageBase64, ...elevationPageBase64s] =
+    await Promise.all([
+      floorPlanPage ? singlePagePdfBase64(sourceDoc, floorPlanPage) : Promise.resolve(null),
+      sectionPage ? singlePagePdfBase64(sourceDoc, sectionPage) : Promise.resolve(null),
+      schedulePage ? singlePagePdfBase64(sourceDoc, schedulePage) : Promise.resolve(null),
+      ...elevationPages.map((p) => singlePagePdfBase64(sourceDoc, p.pageNumber)),
+    ]);
+  console.log(
+    `[extractFullHouse] split ${1 + elevationPages.length + (sectionPage ? 1 : 0) + (schedulePage ? 1 : 0)} pages in ${Date.now() - splitT}ms`,
   );
-  const sectionPromise = sectionPage
-    ? extractSection(pdfBase64, sectionPage)
+
+  // 4. Fan out extractions in parallel — allSettled so a single failure
+  // (Anthropic rate limit, transient network) doesn't kill the whole run.
+  // Each extractor now receives a single-page PDF; we pass pageHint: 1
+  // and post-mutate the response to record the original page number.
+  const floorPlanPromise = floorPlanPage && floorPlanPageBase64
+    ? extractFloorPlanFromPdf(floorPlanPageBase64, { pageHint: 1 }).then(
+        (res) => ({
+          ...res,
+          // Restore the original page number (the extractor saw a single-page
+          // PDF so it returned 1; we want the page from the source doc).
+          detectedPage: floorPlanPage,
+          totalPages: classifications.length,
+        }),
+      )
     : Promise.resolve(null);
-  const schedulePromise = schedulePage
-    ? extractSchedule(pdfBase64, schedulePage)
+  const elevationPromises = elevationPages.map((p, i) => {
+    const slice = elevationPageBase64s[i];
+    if (!slice) return Promise.resolve(null);
+    return extractElevation(slice, 1).then((res) =>
+      res ? { ...res, pageNumber: p.pageNumber } : res,
+    );
+  });
+  const sectionPromise = sectionPage && sectionPageBase64
+    ? extractSection(sectionPageBase64, 1).then((res) =>
+        res ? { ...res, pageNumber: sectionPage } : res,
+      )
+    : Promise.resolve(null);
+  const schedulePromise = schedulePage && schedulePageBase64
+    ? extractSchedule(schedulePageBase64, 1).then((res) =>
+        res ? { ...res, pageNumber: schedulePage } : res,
+      )
     : Promise.resolve(null);
 
   const settled = await Promise.allSettled([
