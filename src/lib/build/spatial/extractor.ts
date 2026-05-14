@@ -68,12 +68,28 @@ YOUR JOB IS TWO STEPS IN ONE CALL:
 
 1. Identify the page number (1-indexed) of the PRIMARY FLOOR PLAN — the page that best shows a top-down view of the building with rooms, walls, doors, and windows. If multiple floor plans exist (ground floor / first floor), pick the GROUND floor.
 
-2. From that floor plan page, extract the spatial layout as structured JSON. Use the same rules as a normal architectural plan extraction:
-   - Rooms as closed polygons with metres coordinates from the bottom-left corner of the building
-   - Walls with start/end points classified as external | internal | party
-   - Openings (doors, windows, bifold, sliding doors, garage doors) with position + dimensions
-   - Overall building bounds + storey count + wall height
-   - If dimensions are annotated, use them. Otherwise estimate from proportions.
+2. From that floor plan page, extract the spatial layout as structured JSON.
+
+WALL EXTRACTION IS CRITICAL — READ THIS CAREFULLY:
+
+The most common failure mode in this task is **under-extracting walls**. The model identifies room positions and labels but treats each room as a floating polygon, skipping the internal partition walls between adjacent rooms. This produces sparse 3D renders with floating rooms and gaps in the outline.
+
+DO NOT do this. Instead:
+
+- **Trace every wall line in the drawing.** Architectural plans show walls as parallel line pairs (thick walls) or single bold lines (thin walls). Every visible wall segment becomes a wall in the output.
+- **Every room polygon edge must correspond to a wall segment.** If Room A and Room B share a boundary, there is a WALL between them — extract it. If a polygon edge is on the building perimeter, it is an EXTERNAL wall.
+- **Expect 2-3× more walls than rooms.** A typical residential plan with 12 rooms has 25-40 wall segments. If your output has fewer walls than rooms, you have under-extracted — go back and find the missing partitions.
+- **External walls form the perimeter** (continuous loop around the building footprint).
+- **Internal walls** are partitions between rooms or short stub walls (e.g. wing walls, bulkheads).
+- **Party walls** apply only to attached/duplex/dual-occupancy buildings on shared boundaries.
+
+DATA FORMAT:
+
+- Rooms as closed polygons with metres coordinates from the bottom-left corner of the building.
+- Walls with start/end points — each wall is a single line segment. A long external wall with a window in it counts as ONE wall (the opening is a separate \`opening\` entry referring to the wall_id).
+- Openings (doors, windows, bifold, sliding doors, garage doors) with position + dimensions, each linked to a \`wall_id\`.
+- Overall building bounds + storey count + wall height.
+- If dimensions are annotated on the plan, use them. Otherwise estimate from proportions and standard Australian residential conventions.
 
 OUTPUT FORMAT — return ONLY valid JSON matching this schema:
 {
