@@ -7,6 +7,25 @@
 
 import "server-only";
 
+// Polyfill DOMMatrix / ImageData / Path2D before pdf-to-img is loaded.
+// pdfjs-dist v5 (used by pdf-to-img) tries to require @napi-rs/canvas at
+// module-load time to polyfill these browser globals, but Vercel's
+// serverless function trace doesn't reliably include the native binary
+// when @napi-rs/canvas is only a transitive optional. Importing it
+// statically here is unambiguous to the bundler and lets us set the
+// globals before pdfjs ever evaluates the modules that use them.
+import * as napiCanvas from "@napi-rs/canvas";
+{
+  const g = globalThis as unknown as {
+    DOMMatrix?: unknown;
+    ImageData?: unknown;
+    Path2D?: unknown;
+  };
+  if (!g.DOMMatrix && napiCanvas.DOMMatrix) g.DOMMatrix = napiCanvas.DOMMatrix;
+  if (!g.ImageData && napiCanvas.ImageData) g.ImageData = napiCanvas.ImageData;
+  if (!g.Path2D && napiCanvas.Path2D) g.Path2D = napiCanvas.Path2D;
+}
+
 /**
  * Render the first page of a PDF to a base64-encoded PNG image.
  *
