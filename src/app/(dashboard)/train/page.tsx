@@ -6,6 +6,8 @@ import { CourseCard } from "@/components/train/course-card";
 import { searchCourses } from "./actions";
 import { createClient } from "@/lib/supabase/server";
 import { GraduationCap, LayoutDashboard, Settings } from "lucide-react";
+import { ComingSoon } from "@/components/shared/coming-soon";
+import { shouldShowComingSoon } from "@/lib/launch-modules";
 
 export default async function TrainPage({
   searchParams,
@@ -19,14 +21,25 @@ export default async function TrainPage({
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  let isAdmin = false;
+  let role: string | null = null;
   if (user) {
     const { data: profile } = await supabase
       .from("profiles")
       .select("role")
       .eq("user_id", user.id)
       .single();
-    isAdmin = profile?.role === "owner" || profile?.role === "admin";
+    role = profile?.role ?? null;
+  }
+  const isAdmin = role === "owner" || role === "admin";
+
+  if (shouldShowComingSoon("train", role)) {
+    return (
+      <ComingSoon
+        moduleName="MMC Train"
+        description="The MMC Train course catalogue will be available in the next release. We're sourcing micro-credentials from TAFE NSW and other accredited providers before launch."
+        Icon={GraduationCap}
+      />
+    );
   }
 
   const { courses, total } = await searchCourses({

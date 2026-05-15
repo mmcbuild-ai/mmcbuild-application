@@ -23,18 +23,24 @@ import {
 import { signOut } from "@/app/(auth)/actions";
 import { Button } from "@/components/ui/button";
 import { isRunLimited, TRIAL_RUN_LIMIT } from "@/lib/persona-access";
+import {
+  isModuleLaunched,
+  canBypassLaunchGate,
+} from "@/lib/launch-modules";
+import type { ModuleId } from "@/lib/stripe/plans";
 
 const moduleNav: {
   name: string;
   href: string;
+  moduleId: ModuleId;
   icon: typeof FileCheck;
   color: string;
 }[] = [
-  { name: "MMC Build", href: "/build", icon: Building2, color: "bg-teal-600" },
-  { name: "MMC Quote", href: "/quote", icon: FileText, color: "bg-teal-500" },
-  { name: "MMC Comply", href: "/comply", icon: FileCheck, color: "bg-teal-700" },
-  { name: "MMC Direct", href: "/direct", icon: Truck, color: "bg-cyan-700" },
-  { name: "MMC Train", href: "/train", icon: GraduationCap, color: "bg-sky-700" },
+  { name: "MMC Build", href: "/build", moduleId: "build", icon: Building2, color: "bg-teal-600" },
+  { name: "MMC Quote", href: "/quote", moduleId: "quote", icon: FileText, color: "bg-teal-500" },
+  { name: "MMC Comply", href: "/comply", moduleId: "comply", icon: FileCheck, color: "bg-teal-700" },
+  { name: "MMC Direct", href: "/direct", moduleId: "direct", icon: Truck, color: "bg-cyan-700" },
+  { name: "MMC Train", href: "/train", moduleId: "train", icon: GraduationCap, color: "bg-sky-700" },
 ];
 
 const topNav = [
@@ -53,14 +59,20 @@ export type SidebarProps = {
   isOpen: boolean;
   tier: string | null;
   runCount: number;
+  role: string | null;
 };
 
-export function Sidebar({ isOpen, tier, runCount }: SidebarProps) {
+export function Sidebar({ isOpen, tier, runCount, role }: SidebarProps) {
   const pathname = usePathname();
 
   const runLimited = isRunLimited(tier);
   const runPercentage = Math.min((runCount / TRIAL_RUN_LIMIT) * 100, 100);
   const runsRemaining = Math.max(TRIAL_RUN_LIMIT - runCount, 0);
+
+  const bypassGate = canBypassLaunchGate(role);
+  const visibleModuleNav = moduleNav.filter(
+    (item) => bypassGate || isModuleLaunched(item.moduleId),
+  );
 
   return (
     <aside
@@ -113,7 +125,7 @@ export function Sidebar({ isOpen, tier, runCount }: SidebarProps) {
         <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
           Modules
         </p>
-        {moduleNav.map((item) => {
+        {visibleModuleNav.map((item) => {
           const isActive = pathname.startsWith(item.href);
           return (
             <Link

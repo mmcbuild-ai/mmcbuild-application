@@ -3,17 +3,43 @@ import { ProfessionalCard } from "@/components/direct/professional-card";
 import { DirectorySearch } from "@/components/direct/directory-search";
 import { DirectoryPagination } from "@/components/direct/directory-pagination";
 import { searchProfessionals } from "./actions";
-import { Users } from "lucide-react";
+import { Truck, Users } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import type { Professional, Specialisation } from "@/lib/direct/types";
+import { createClient } from "@/lib/supabase/server";
+import { ComingSoon } from "@/components/shared/coming-soon";
+import { shouldShowComingSoon } from "@/lib/launch-modules";
 
 export default async function DirectPage({
   searchParams,
 }: {
   searchParams: Promise<{ q?: string; trade?: string; region?: string; spec?: string; page?: string }>;
 }) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  let role: string | null = null;
+  if (user) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("user_id", user.id)
+      .single();
+    role = profile?.role ?? null;
+  }
+  if (shouldShowComingSoon("direct", role)) {
+    return (
+      <ComingSoon
+        moduleName="MMC Direct"
+        description="The MMC Direct trade and supplier directory will be available in the next release. Builders, certifiers, and suppliers across Australia will list their services here."
+        Icon={Truck}
+      />
+    );
+  }
+
   const params = await searchParams;
   const result = await searchProfessionals({
     query: params.q,

@@ -45,6 +45,7 @@ export function DashboardShell({
           isOpen={sidebarOpen}
           tier={tier}
           runCount={runCount}
+          role={role}
         />
       </div>
 
