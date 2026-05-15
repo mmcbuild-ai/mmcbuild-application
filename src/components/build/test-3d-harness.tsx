@@ -213,9 +213,45 @@ export function Test3DHarness() {
       </form>
 
       {result?.error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-          <strong className="block mb-1">Failed</strong>
-          {result.error}
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 space-y-2">
+          <div>
+            <strong className="block mb-1">Failed</strong>
+            {result.error}
+          </div>
+          {result.convertedFrom && (
+            <p className="text-xs">
+              Converted from <code>{result.convertedFrom}</code> to PDF via
+              CloudConvert before extraction.
+            </p>
+          )}
+          {result.pdfPageCount != null && (
+            <p className="text-xs">
+              PDF has {result.pdfPageCount} pages.
+            </p>
+          )}
+          {result.classifications && result.classifications.length > 0 && (
+            <details open className="text-xs">
+              <summary className="cursor-pointer font-medium">
+                Page classifications ({result.classifications.length}) —
+                what the classifier labeled each page as
+              </summary>
+              <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-0.5 sm:grid-cols-3">
+                {result.classifications.map((c) => (
+                  <span key={c.pageNumber} className="font-mono">
+                    p{c.pageNumber}: {c.type} ({Math.round(c.confidence * 100)}
+                    %)
+                  </span>
+                ))}
+              </div>
+              <p className="mt-2">
+                If none of these are <code>floor_plan_ground</code> or{" "}
+                <code>floor_plan_upper</code>, the classifier didn&apos;t
+                recognise any page as a floor plan. Try entering a specific
+                page number in the PDF page field above to force one as the
+                floor plan.
+              </p>
+            </details>
+          )}
         </div>
       )}
 
