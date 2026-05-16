@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Loader2, FileText, Image as ImageIcon } from "lucide-react";
 import { PlanComparison3D } from "./plan-comparison-3d";
+import { SystemExplorerView } from "./system-explorer-view";
 import {
   extractTest3D,
   type Test3DResult,
@@ -16,6 +17,7 @@ import {
 } from "@/lib/plans/file-kind";
 
 type Phase = "idle" | "uploading" | "extracting";
+type ViewMode = "system-explorer" | "standard";
 
 const MAX_BYTES = 50 * 1024 * 1024;
 
@@ -25,6 +27,7 @@ export function Test3DHarness() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [result, setResult] = useState<Test3DResult | null>(null);
   const [showJson, setShowJson] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("system-explorer");
 
   const isPdf = file?.type === "application/pdf" || file?.name.toLowerCase().endsWith(".pdf");
   // DWG/RVT/SKP/DOC/DOCX get converted to PDF before extraction, so the page
@@ -345,8 +348,38 @@ export function Test3DHarness() {
           </div>
 
           <div className="rounded-lg border bg-white p-4">
-            <h2 className="mb-3 text-lg font-semibold">3D render</h2>
-            <PlanComparison3D layout={result.layout} suggestions={[]} />
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold">3D render</h2>
+              <div className="flex items-center gap-1 rounded-md border bg-zinc-50 p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("system-explorer")}
+                  className={`rounded px-2.5 py-1 transition-colors ${
+                    viewMode === "system-explorer"
+                      ? "bg-white shadow-sm font-medium text-zinc-900"
+                      : "text-zinc-600 hover:text-zinc-900"
+                  }`}
+                >
+                  System Explorer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("standard")}
+                  className={`rounded px-2.5 py-1 transition-colors ${
+                    viewMode === "standard"
+                      ? "bg-white shadow-sm font-medium text-zinc-900"
+                      : "text-zinc-600 hover:text-zinc-900"
+                  }`}
+                >
+                  Standard
+                </button>
+              </div>
+            </div>
+            {viewMode === "system-explorer" ? (
+              <SystemExplorerView layout={result.layout} />
+            ) : (
+              <PlanComparison3D layout={result.layout} suggestions={[]} />
+            )}
           </div>
 
           <div className="rounded-lg border bg-white">
