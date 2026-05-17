@@ -6,6 +6,7 @@
  */
 
 import * as THREE from "three";
+import ClipperLib from "clipper-lib";
 import type {
   SpatialLayout,
   Wall,
@@ -261,9 +262,11 @@ function computePerimeterPolygon(walls: Wall[]): Point2D[] | null {
  * Build a roof mesh based on the SpatialLayout.roof spec.
  *
  * Primary path: extracts the perimeter polygon from external walls and
- * builds the roof as a polygon extrusion that follows the actual building
- * outline. Height of the extrusion varies by roof form — flat gets a thin
- * slab, pitched forms extrude up to an approximated ridge height.
+ * builds the roof to follow the actual building outline. Pitched forms
+ * (gable, hip, mansard, complex) use the v3 inset-ring algorithm which
+ * produces a hipped-everywhere silhouette on any polygon footprint —
+ * rectangles, L-shapes, T-shapes — instead of a flat-topped slab.
+ * Flat and skillion use simpler shape-specific builders.
  *
  * Fallback path: if the perimeter polygon can't be computed (walls don't
  * form a closed loop), falls back to bounding-box-based roof shapes
@@ -272,10 +275,10 @@ function computePerimeterPolygon(walls: Wall[]): Point2D[] | null {
  * Coordinate system: same as walls — x = right, z = depth (mapped from
  * layout y). baseHeight = top of the wall where the roof starts.
  *
- * TODO: true pitched roof on arbitrary polygons (gable ridge + hip
- * surfaces that follow the L-shape) is real CSG work — currently the
- * polygon path uses a flat-topped extrusion at the ridge height. The
- * footprint is correct; the silhouette doesn't show pitch lines yet.
+ * v3.x backlog: gable preservation (straight end-wall ridges) currently
+ * renders as a hip — needs a per-edge "is gable end" flag passed to the
+ * inset builder so those edges hold their original height instead of
+ * collapsing inward.
  */
 function buildRoof(
   layout: SpatialLayout,
@@ -285,6 +288,7 @@ function buildRoof(
   if (!roof) return null;
 
   const pitchRad = Math.max(0, (roof.pitch_deg ?? 22.5)) * (Math.PI / 180);
+  const eave = Math.max(0, roof.eave_overhang_m ?? 0);
 
   const colour = parseHexColour(
     roof.colour ?? layout.materials?.roof_colour,
@@ -302,12 +306,11 @@ function buildRoof(
   // Primary path: polygon-based roof following the wall outline.
   const polygon = computePerimeterPolygon(layout.walls);
   if (polygon) {
-    return buildRoofFromPolygon(polygon, form, pitchRad, baseHeight, material);
+    return buildRoofFromPolygon(polygon, form, pitchRad, eave, baseHeight, material);
   }
 
   // Fallback: bounding-box-based roof shapes (kept for plans where the
   // external wall list doesn't form a closed loop).
-  const eave = Math.max(0, roof.eave_overhang_m ?? 0);
   const minX = layout.bounds.min.x - eave;
   const maxX = layout.bounds.max.x + eave;
   const minY = layout.bounds.min.y - eave;
@@ -329,33 +332,51 @@ function buildRoof(
 }
 
 /**
- * Build a roof as an extrusion of the perimeter polygon. Height varies
- * by roof form so steeper-pitched roofs visually sit taller above the
- * wall plate.
+ * Dispatch perimeter-polygon roofs by form. Flat → thin slab extrusion;
+ * skillion → bounding-box wedge from polygon extent; everything pitched
+ * → inset-ring algorithm.
  */
 function buildRoofFromPolygon(
   polygon: Point2D[],
   form: string,
   pitchRad: number,
+  eave: number,
   baseHeight: number,
   material: THREE.Material,
 ): THREE.Mesh {
-  // Compute span for ridge-height estimate (used by pitched forms)
-  const xs = polygon.map((p) => p.x);
-  const ys = polygon.map((p) => p.y);
-  const spanX = Math.max(...xs) - Math.min(...xs);
-  const spanY = Math.max(...ys) - Math.min(...ys);
-  const minSpan = Math.min(spanX, spanY);
+  // Expand polygon outward by eave overhang so the roof oversails the
+  // walls. Pure passthrough when eave is 0 or expansion fails.
+  const footprint = eave > 0 ? expandPolygon(polygon, eave) ?? polygon : polygon;
 
-  // Extrusion height: thin slab for flat, ~half-span × tan(pitch) for pitched
-  // forms (approximates a roof block; true pitched gable/hip silhouette
-  // on arbitrary polygons is a v2 refinement).
-  let extrudeHeight: number;
   if (form === "flat") {
-    extrudeHeight = 0.15;
-  } else {
-    extrudeHeight = Math.max(0.15, (minSpan / 2) * Math.tan(pitchRad));
+    return buildFlatSlabFromPolygon(footprint, baseHeight, material);
   }
+
+  if (form === "skillion") {
+    // Skillion needs a directional ridge that isn't well-defined on an
+    // arbitrary polygon. Use the polygon's bounding box as the wedge
+    // frame; visually correct on rectangles, approximate elsewhere.
+    const xs = footprint.map((p) => p.x);
+    const ys = footprint.map((p) => p.y);
+    return buildSkillionRoof(
+      Math.min(...xs), Math.max(...xs),
+      Math.min(...ys), Math.max(...ys),
+      baseHeight, pitchRad, material,
+    );
+  }
+
+  return buildPitchedRoofFromPolygon(footprint, pitchRad, baseHeight, material, form);
+}
+
+/**
+ * Flat slab extrusion over the perimeter polygon. ~150mm thick.
+ */
+function buildFlatSlabFromPolygon(
+  polygon: Point2D[],
+  baseHeight: number,
+  material: THREE.Material,
+): THREE.Mesh {
+  const thickness = 0.15;
 
   const shape = new THREE.Shape();
   shape.moveTo(polygon[0].x, polygon[0].y);
@@ -365,20 +386,225 @@ function buildRoofFromPolygon(
   shape.closePath();
 
   const geometry = new THREE.ExtrudeGeometry(shape, {
-    depth: extrudeHeight,
+    depth: thickness,
     bevelEnabled: false,
   });
 
   const mesh = new THREE.Mesh(geometry, material);
-  // Rotate so the polygon (XY in shape space) lies on world XZ plane,
-  // matching how buildFloor places room polygons. After this rotation the
-  // extrusion direction (originally +Z) points along world -Y, so we
-  // translate up by extrudeHeight to put the extrusion ABOVE baseHeight.
   mesh.rotation.x = -Math.PI / 2;
-  mesh.position.y = baseHeight + extrudeHeight;
-
-  mesh.userData = { type: "roof", form, footprint: "polygon" };
+  mesh.position.y = baseHeight + thickness;
+  mesh.userData = { type: "roof", form: "flat", footprint: "polygon" };
   return mesh;
+}
+
+/**
+ * Inset-ring pitched roof on an arbitrary polygon footprint.
+ *
+ * Walks the polygon inward in fixed steps using clipper-lib's polygon
+ * offset, stacks each inset ring at a height proportional to its inset
+ * distance × tan(pitch), and stitches consecutive rings into a
+ * BufferGeometry. The result is a "hipped everywhere" pitched roof that
+ * follows the building's actual outline — works for rectangles, L-shapes,
+ * T-shapes, and courtyards.
+ *
+ * Algorithm reference: project memory `project_roof_v3_plan_clipper_inset`.
+ * Topology-change handling (when an inset ring has fewer vertices than the
+ * one outside it) falls back to nearest-vertex stitching rather than
+ * straight-skeleton bisector computation.
+ */
+function buildPitchedRoofFromPolygon(
+  polygon: Point2D[],
+  pitchRad: number,
+  baseHeight: number,
+  material: THREE.Material,
+  form: string,
+): THREE.Mesh {
+  const SCALE = 1000; // 1mm clipper precision
+  const INSET_STEP_M = 0.1; // 100mm per ring — ~30-50 rings on a typical house
+  const MAX_RINGS = 200; // safety against pathological inputs
+
+  // clipper expects CCW outer polygons for negative-offset shrink.
+  const orientedPoly = ensureCCW(polygon);
+  const clipperPath = orientedPoly.map((p) => ({
+    X: Math.round(p.x * SCALE),
+    Y: Math.round(p.y * SCALE),
+  }));
+
+  type Ring = { points: Point2D[]; height: number };
+  const rings: Ring[] = [{ points: orientedPoly, height: baseHeight }];
+
+  // Offset from the ORIGINAL polygon at increasing distances each iteration
+  // (more numerically stable than re-offsetting the previous solution).
+  for (let i = 1; i <= MAX_RINGS; i++) {
+    const co = new ClipperLib.ClipperOffset();
+    co.AddPath(clipperPath, ClipperLib.JoinType.jtMiter, ClipperLib.EndType.etClosedPolygon);
+    const solution: { X: number; Y: number }[][] = [];
+    co.Execute(solution, -i * INSET_STEP_M * SCALE);
+
+    if (solution.length === 0) break;
+
+    // If the offset split the polygon (rare for residential plans, common
+    // for thin courtyards), keep the largest piece. We lose the smaller
+    // ridge segment — acceptable tradeoff for v3.
+    let best = solution[0];
+    let bestArea = Math.abs(ClipperLib.Clipper.Area(best));
+    for (let j = 1; j < solution.length; j++) {
+      const a = Math.abs(ClipperLib.Clipper.Area(solution[j]));
+      if (a > bestArea) {
+        best = solution[j];
+        bestArea = a;
+      }
+    }
+    if (best.length < 3) break;
+
+    const insetPoly = best.map((p) => ({ x: p.X / SCALE, y: p.Y / SCALE }));
+    const height = baseHeight + i * INSET_STEP_M * Math.tan(pitchRad);
+    rings.push({ points: insetPoly, height });
+  }
+
+  // Build buffer geometry: side faces between consecutive rings + cap on
+  // top of the smallest ring.
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const ringStarts: number[] = [];
+
+  for (const ring of rings) {
+    ringStarts.push(positions.length / 3);
+    for (const p of ring.points) {
+      // World coords: x → x, ring height → y (up), layout y → z (depth)
+      positions.push(p.x, ring.height, p.y);
+    }
+  }
+
+  for (let r = 0; r < rings.length - 1; r++) {
+    const outer = rings[r].points;
+    const inner = rings[r + 1].points;
+    const outerStart = ringStarts[r];
+    const innerStart = ringStarts[r + 1];
+    appendSkirtFaces(indices, outer, inner, outerStart, innerStart);
+  }
+
+  // Cap the topmost ring with a triangle fan from its first vertex.
+  const topRing = rings[rings.length - 1].points;
+  const topStart = ringStarts[ringStarts.length - 1];
+  if (topRing.length >= 3) {
+    for (let i = 1; i < topRing.length - 1; i++) {
+      indices.push(topStart, topStart + i, topStart + i + 1);
+    }
+  }
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(positions), 3));
+  geom.setIndex(indices);
+  geom.computeVertexNormals();
+
+  const mesh = new THREE.Mesh(geom, material);
+  mesh.userData = {
+    type: "roof",
+    form,
+    footprint: "polygon",
+    algorithm: "clipper_inset",
+    rings: rings.length,
+  };
+  return mesh;
+}
+
+/** Build skirt triangles between two consecutive rings. When vertex
+ *  counts match we connect i-th to i-th; otherwise each outer edge
+ *  finds its nearest inner vertices. */
+function appendSkirtFaces(
+  indices: number[],
+  outer: Point2D[],
+  inner: Point2D[],
+  outerStart: number,
+  innerStart: number,
+): void {
+  if (outer.length === inner.length) {
+    const n = outer.length;
+    for (let i = 0; i < n; i++) {
+      const i2 = (i + 1) % n;
+      const o0 = outerStart + i;
+      const o1 = outerStart + i2;
+      const in0 = innerStart + i;
+      const in1 = innerStart + i2;
+      indices.push(o0, o1, in1);
+      indices.push(o0, in1, in0);
+    }
+    return;
+  }
+
+  // Topology changed (inset collapsed at least one edge). For each outer
+  // edge, attach it to its nearest inner vertex/vertices.
+  for (let i = 0; i < outer.length; i++) {
+    const i2 = (i + 1) % outer.length;
+    const o0 = outerStart + i;
+    const o1 = outerStart + i2;
+    const p0 = outer[i];
+    const p1 = outer[i2];
+    const j0 = nearestVertexIndex(p0, inner);
+    const j1 = nearestVertexIndex(p1, inner);
+    const in0 = innerStart + j0;
+    const in1 = innerStart + j1;
+    indices.push(o0, o1, in1);
+    if (j0 !== j1) indices.push(o0, in1, in0);
+  }
+}
+
+function nearestVertexIndex(p: Point2D, candidates: Point2D[]): number {
+  let bestIdx = 0;
+  let bestDistSq = Infinity;
+  for (let i = 0; i < candidates.length; i++) {
+    const dx = candidates[i].x - p.x;
+    const dy = candidates[i].y - p.y;
+    const d = dx * dx + dy * dy;
+    if (d < bestDistSq) {
+      bestDistSq = d;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
+}
+
+/** Signed area > 0 in our XY coord system corresponds to one winding
+ *  direction; we normalise the polygon so clipper's negative offset
+ *  reliably shrinks rather than expanding. */
+function ensureCCW(polygon: Point2D[]): Point2D[] {
+  let sum = 0;
+  for (let i = 0; i < polygon.length; i++) {
+    const a = polygon[i];
+    const b = polygon[(i + 1) % polygon.length];
+    sum += (b.x - a.x) * (b.y + a.y);
+  }
+  return sum > 0 ? polygon.slice().reverse() : polygon;
+}
+
+/** Expand the polygon outward by `distance` metres (used to add eave
+ *  overhang). Returns null if clipper can't produce a valid expansion. */
+function expandPolygon(polygon: Point2D[], distance: number): Point2D[] | null {
+  if (distance <= 0) return polygon;
+  const SCALE = 1000;
+  const oriented = ensureCCW(polygon);
+  const path = oriented.map((p) => ({
+    X: Math.round(p.x * SCALE),
+    Y: Math.round(p.y * SCALE),
+  }));
+  const co = new ClipperLib.ClipperOffset();
+  co.AddPath(path, ClipperLib.JoinType.jtMiter, ClipperLib.EndType.etClosedPolygon);
+  const solution: { X: number; Y: number }[][] = [];
+  co.Execute(solution, distance * SCALE);
+  if (solution.length === 0) return null;
+  // Pick the largest expanded ring.
+  let best = solution[0];
+  let bestArea = Math.abs(ClipperLib.Clipper.Area(best));
+  for (let j = 1; j < solution.length; j++) {
+    const a = Math.abs(ClipperLib.Clipper.Area(solution[j]));
+    if (a > bestArea) {
+      best = solution[j];
+      bestArea = a;
+    }
+  }
+  if (best.length < 3) return null;
+  return best.map((p) => ({ x: p.X / SCALE, y: p.Y / SCALE }));
 }
 
 function buildFlatRoof(
