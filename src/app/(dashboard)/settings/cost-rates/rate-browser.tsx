@@ -321,8 +321,8 @@ export function RateBrowser({ categories }: RateBrowserProps) {
                   ({catRates.length})
                 </span>
               </h3>
-              <div className="rounded-lg border overflow-hidden">
-                <table className="w-full text-sm">
+              <div className="overflow-x-auto overscroll-x-contain rounded-lg border">
+                <table className="w-full min-w-[640px] text-sm">
                   <thead>
                     <tr className="bg-slate-50 text-left">
                       <th className="px-3 py-2 font-medium text-muted-foreground">Element</th>

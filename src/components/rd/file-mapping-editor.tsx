@@ -92,18 +92,21 @@ export function FileMappingEditor({ mappings: initial }: FileMappingEditorProps)
       </CardHeader>
       <CardContent className="space-y-3">
         {rows.map((row, i) => (
-          <div key={i} className="flex gap-2 items-start flex-wrap">
+          <div
+            key={i}
+            className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:items-start lg:grid-cols-[200px_180px_200px_140px_auto]"
+          >
             <Input
               placeholder="src/lib/comply/**"
               value={row.pattern}
               onChange={(e) => updateRow(i, "pattern", e.target.value)}
-              className="w-[200px]"
+              className="w-full"
             />
             <Select
               value={row.stage}
               onValueChange={(v) => updateRow(i, "stage", v)}
             >
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -118,7 +121,7 @@ export function FileMappingEditor({ mappings: initial }: FileMappingEditorProps)
               value={row.deliverable}
               onValueChange={(v) => updateRow(i, "deliverable", v)}
             >
-              <SelectTrigger className="w-[200px]">
+              <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -133,7 +136,7 @@ export function FileMappingEditor({ mappings: initial }: FileMappingEditorProps)
               value={row.rd_tag}
               onValueChange={(v) => updateRow(i, "rd_tag", v as RdTag)}
             >
-              <SelectTrigger className="w-[140px]">
+              <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -148,7 +151,7 @@ export function FileMappingEditor({ mappings: initial }: FileMappingEditorProps)
               variant="ghost"
               size="sm"
               onClick={() => removeRow(i)}
-              className="text-muted-foreground hover:text-destructive"
+              className="justify-self-start text-muted-foreground hover:text-destructive sm:col-span-2 lg:col-span-1 lg:justify-self-auto"
             >
               Remove
             </Button>

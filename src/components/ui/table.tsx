@@ -4,7 +4,9 @@ import { cn } from "@/lib/utils"
 
 function Table({ className, ...props }: React.ComponentProps<"table">) {
   return (
-    <div className="relative w-full overflow-auto">
+    // overscroll-x-contain prevents horizontal table-scroll from triggering
+    // browser back-swipe on iOS / trackpad horizontal nav.
+    <div className="relative w-full overflow-x-auto overscroll-x-contain">
       <table
         data-slot="table"
         className={cn("w-full caption-bottom text-sm", className)}
@@ -65,7 +67,7 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
     <th
       data-slot="table-head"
       className={cn(
-        "h-10 px-2 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+        "h-10 whitespace-nowrap px-2 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
         className
       )}
       {...props}
