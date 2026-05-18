@@ -34,9 +34,9 @@ export default async function LessonPage({
     currentIndex < allLessons.length - 1 ? allLessons[currentIndex + 1] : null;
 
   return (
-    <div className="flex min-h-[calc(100vh-4rem)]">
+    <div className="flex min-h-[calc(100dvh-4rem)]">
       {/* Sidebar */}
-      <aside className="hidden lg:block w-72 border-r p-4 overflow-y-auto shrink-0">
+      <aside className="hidden shrink-0 w-72 overflow-y-auto border-r p-4 lg:block">
         <Link
           href={`/train/${courseId}`}
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4"

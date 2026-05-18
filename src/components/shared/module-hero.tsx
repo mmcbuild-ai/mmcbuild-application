@@ -19,9 +19,9 @@ export function ModuleHero({
   const Icon = theme.icon;
 
   return (
-    <div className={`${theme.heroGradient} -m-6 mb-6`}>
-      <div className="max-w-7xl mx-auto px-6 lg:px-16 py-16 lg:py-24">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+    <div className={`${theme.heroGradient} -mx-4 -mt-4 mb-4 sm:-mx-6 sm:-mt-6 sm:mb-6`}>
+      <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-16 lg:px-16 lg:py-24">
+        <div className="grid grid-cols-1 items-center gap-8 sm:gap-12 lg:grid-cols-2">
           {/* Left column — Text content */}
           <div className="space-y-6">
             {/* Badge pill */}
