@@ -350,7 +350,7 @@ export function CertificationUpload({ projectId, existingCerts = [] }: Certifica
               </select>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <Label>Issuer Name (optional)</Label>
                 <Input
