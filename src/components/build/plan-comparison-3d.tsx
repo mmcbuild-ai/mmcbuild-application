@@ -55,13 +55,13 @@ export function PlanComparison3D({
   return (
     <div className={className}>
       {/* View mode toggle */}
-      <div className="mb-3 flex items-center gap-2">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <span className="text-sm font-medium text-zinc-600">View:</span>
         {(["split", "original", "optimised"] as const).map((mode) => (
           <button
             key={mode}
             onClick={() => setViewMode(mode)}
-            className={`rounded-md px-3 py-1 text-sm capitalize ${
+            className={`rounded-md px-3 py-2 text-sm capitalize min-h-[44px] md:min-h-0 md:py-1 ${
               viewMode === mode
                 ? "bg-teal-600 text-white"
                 : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
@@ -79,31 +79,31 @@ export function PlanComparison3D({
 
       {/* Viewer(s) */}
       {viewMode === "split" ? (
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <PlanViewer3D
             layout={layout}
             label="Original Plan"
-            className="min-h-[400px]"
+            className="min-h-[300px] sm:min-h-[400px]"
           />
           <PlanViewer3D
             layout={layout}
             suggestions={overlays}
             label="With MMC Suggestions"
-            className="min-h-[400px]"
+            className="min-h-[300px] sm:min-h-[400px]"
           />
         </div>
       ) : viewMode === "original" ? (
         <PlanViewer3D
           layout={layout}
           label="Original Plan"
-          className="min-h-[500px]"
+          className="min-h-[400px] md:min-h-[500px]"
         />
       ) : (
         <PlanViewer3D
           layout={layout}
           suggestions={overlays}
           label="With MMC Suggestions"
-          className="min-h-[500px]"
+          className="min-h-[400px] md:min-h-[500px]"
         />
       )}
 

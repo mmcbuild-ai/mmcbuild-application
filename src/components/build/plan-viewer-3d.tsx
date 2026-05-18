@@ -1,15 +1,30 @@
 "use client";
 
-import { useRef, useState, useMemo, Suspense } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { useState, useMemo, Suspense, useEffect } from "react";
+import { Canvas } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, Html, Grid } from "@react-three/drei";
-import * as THREE from "three";
 import {
   buildFloorPlan3D,
   buildSuggestionHighlight,
   type SpatialLayout,
   type SuggestionOverlay,
 } from "@/lib/build/spatial";
+
+// ============================================
+// Mobile detection
+// ============================================
+
+function useIsMobile(): boolean {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    setIsMobile(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  return isMobile;
+}
 
 // ============================================
 // Sub-components rendered inside Canvas
@@ -79,7 +94,7 @@ function RoomLabels({ layout }: { layout: SpatialLayout }) {
   );
 }
 
-function SceneSetup({ layout }: { layout: SpatialLayout }) {
+function SceneSetup({ layout, isMobile }: { layout: SpatialLayout; isMobile: boolean }) {
   const maxDim = Math.max(layout.bounds.width, layout.bounds.depth);
   const cameraDistance = maxDim * 1.2;
 
@@ -96,12 +111,18 @@ function SceneSetup({ layout }: { layout: SpatialLayout }) {
         maxPolarAngle={Math.PI / 2.1}
         minDistance={2}
         maxDistance={cameraDistance * 3}
+        enablePan
+        enableZoom
+        enableRotate
       />
       <ambientLight intensity={0.6} />
+      {/* disable post-processing on mobile — GPU budget */}
       <directionalLight
         position={[maxDim, maxDim * 1.5, maxDim * 0.5]}
         intensity={0.8}
-        castShadow
+        castShadow={!isMobile}
+        shadow-mapSize-width={isMobile ? 0 : 1024}
+        shadow-mapSize-height={isMobile ? 0 : 1024}
       />
       <directionalLight position={[-maxDim, maxDim, -maxDim]} intensity={0.3} />
       <Grid
@@ -136,16 +157,17 @@ export function PlanViewer3D({
 }: PlanViewer3DProps) {
   const [showLabels, setShowLabels] = useState(true);
   const [showSuggestions, setShowSuggestions] = useState(true);
+  const isMobile = useIsMobile();
 
   return (
     <div className={`relative rounded-lg border bg-zinc-50 ${className}`}>
       {/* Header bar */}
-      <div className="flex items-center justify-between border-b bg-white px-3 py-1.5 rounded-t-lg">
+      <div className="flex items-center justify-between border-b bg-white px-3 py-2 rounded-t-lg">
         <span className="text-sm font-medium text-zinc-700">{label || "3D Plan View"}</span>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowLabels(!showLabels)}
-            className={`rounded px-2 py-0.5 text-xs ${
+            className={`rounded px-3 py-1.5 text-xs min-h-[44px] md:min-h-0 md:px-2 md:py-0.5 ${
               showLabels
                 ? "bg-zinc-200 text-zinc-800"
                 : "bg-zinc-100 text-zinc-400"
@@ -156,7 +178,7 @@ export function PlanViewer3D({
           {suggestions.length > 0 && (
             <button
               onClick={() => setShowSuggestions(!showSuggestions)}
-              className={`rounded px-2 py-0.5 text-xs ${
+              className={`rounded px-3 py-1.5 text-xs min-h-[44px] md:min-h-0 md:px-2 md:py-0.5 ${
                 showSuggestions
                   ? "bg-teal-100 text-teal-800"
                   : "bg-zinc-100 text-zinc-400"
@@ -168,11 +190,11 @@ export function PlanViewer3D({
         </div>
       </div>
 
-      {/* Canvas */}
-      <div className="h-[500px] w-full">
-        <Canvas shadows>
+      {/* Canvas — sizes off parent; fixed height only kicks in at md+ */}
+      <div className="h-[60vh] sm:h-[70vh] md:h-[500px] w-full">
+        <Canvas shadows={!isMobile}>
           <Suspense fallback={null}>
-            <SceneSetup layout={layout} />
+            <SceneSetup layout={layout} isMobile={isMobile} />
             <BuildingModel layout={layout} />
             {showLabels && <RoomLabels layout={layout} />}
             {showSuggestions && suggestions.length > 0 && (
@@ -182,13 +204,14 @@ export function PlanViewer3D({
         </Canvas>
       </div>
 
-      {/* Footer — confidence + controls hint */}
-      <div className="flex items-center justify-between border-t bg-white px-3 py-1.5 rounded-b-lg text-xs text-zinc-500">
+      {/* Footer — confidence + controls hint (touch-aware) */}
+      <div className="flex flex-wrap items-center justify-between gap-1 border-t bg-white px-3 py-2 rounded-b-lg text-xs text-zinc-500">
         <span>
           Confidence: {(layout.confidence * 100).toFixed(0)}%
           {layout.notes && ` — ${layout.notes}`}
         </span>
-        <span>Scroll to zoom · Drag to rotate · Right-drag to pan</span>
+        <span className="hidden md:inline">Scroll to zoom · Drag to rotate · Right-drag to pan</span>
+        <span className="md:hidden">Pinch to zoom · Drag to rotate</span>
       </div>
     </div>
   );
