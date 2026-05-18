@@ -293,7 +293,7 @@ function InviteDialog({
           Invite Member
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-h-[85dvh]">
         <DialogHeader>
           <DialogTitle>Invite Team Member</DialogTitle>
           <DialogDescription>

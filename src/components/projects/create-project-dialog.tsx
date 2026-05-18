@@ -87,7 +87,7 @@ export function CreateProjectDialog({ defaultOpen = false }: { defaultOpen?: boo
           New Project
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
+      <DialogContent className="flex max-h-[85dvh] max-w-lg flex-col">
         <DialogHeader>
           <DialogTitle>Create Project</DialogTitle>
           <DialogDescription>
