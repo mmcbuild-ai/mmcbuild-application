@@ -62,3 +62,8 @@ pnpm-debug.log*
 CLAUDE.local.md
 .env*.local
 .gstack/
+
+# ─── Scratch / local-only script state ───
+# Dotfile-prefixed entries in scripts/ are session scratch: parsed Jira
+# attachments, transcript intermediates, one-off state dumps. Never commit.
+scripts/.*
