@@ -106,7 +106,7 @@ export async function forgotPassword(formData: FormData) {
   const email = formData.get("email") as string;
 
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${appUrl}/auth/callback?redirect=/settings`,
+    redirectTo: `${appUrl}/auth/callback?redirect=/reset-password`,
   });
 
   if (error) {
@@ -116,6 +116,47 @@ export async function forgotPassword(formData: FormData) {
   }
 
   redirect("/login?message=Check your email for a password reset link");
+}
+
+export async function resetPassword(formData: FormData) {
+  const supabase = await createClient();
+
+  const password = formData.get("password") as string;
+  const confirmPassword = formData.get("confirm_password") as string;
+
+  if (!password || password.length < 8) {
+    redirect(
+      `/reset-password?error=${encodeURIComponent("Password must be at least 8 characters")}`
+    );
+  }
+
+  if (password !== confirmPassword) {
+    redirect(
+      `/reset-password?error=${encodeURIComponent("Passwords do not match")}`
+    );
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect(
+      `/forgot-password?error=${encodeURIComponent("Reset link expired or invalid. Request a new one.")}`
+    );
+  }
+
+  const { error } = await supabase.auth.updateUser({ password });
+
+  if (error) {
+    redirect(
+      `/reset-password?error=${encodeURIComponent(error.message)}`
+    );
+  }
+
+  await supabase.auth.signOut();
+
+  redirect("/login?message=Password updated. Sign in with your new password.");
 }
 
 export async function signOut() {
