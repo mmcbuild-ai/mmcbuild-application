@@ -347,7 +347,7 @@ export async function extractFullHouse(
       (floorPlanResult.layout.rooms?.length || 0) === 0);
   if (
     standardExtractorFailed &&
-    process.env.ENABLE_SHEET_DECOMPOSITION === "true"
+    process.env.ENABLE_SHEET_DECOMPOSITION?.trim() === "true"
   ) {
     console.log(
       `[extractFullHouse] standard extractor returned no layout — invoking sheet decomposer fallback`,
