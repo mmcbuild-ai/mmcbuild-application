@@ -78,7 +78,11 @@ test.describe("MMC Comply", () => {
 
       // Find file input and try uploading a .txt file
       const fileInput = builderPage.locator('input[type="file"]');
-      if (await fileInput.isAttached({ timeout: 5_000 }).catch(() => false)) {
+      const fileInputAttached = await fileInput
+        .waitFor({ state: "attached", timeout: 5_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (fileInputAttached) {
         // Create a fake text file buffer
         const buffer = Buffer.from("This is not a PDF");
         await fileInput.setInputFiles({
