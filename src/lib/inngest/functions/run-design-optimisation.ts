@@ -89,7 +89,7 @@ export const runDesignOptimisation = inngest.createFunction(
       try {
         const { data: plan } = await db()
           .from("plans")
-          .select("file_path")
+          .select("file_path, file_kind, file_name")
           .eq("id", check.plan_id)
           .single();
 
@@ -102,7 +102,61 @@ export const runDesignOptimisation = inngest.createFunction(
 
         if (!fileData) return null;
 
-        const pdfBuffer = Buffer.from(await fileData.arrayBuffer());
+        const sourceBuffer = Buffer.from(await fileData.arrayBuffer());
+
+        // Non-PDF uploads (DWG/RVT/SKP/DOC) need CloudConvert → PDF before
+        // we can rasterise. Without this branch the raw binary lands in
+        // pdf-to-img, which throws inside the catch on line 132 and leaves
+        // spatial_layout null — design suggestions still populate via the
+        // RAG path (process-plan.ts already wrote DXF-derived chunks) but
+        // the 3D viewer silently hides. Karen's "data but no image"
+        // symptom on /build. SCRUM-52.
+        const planKind = (plan as { file_kind?: string | null }).file_kind;
+        const planFileName =
+          (plan as { file_name?: string | null }).file_name ?? "plan";
+        let pdfBuffer = sourceBuffer;
+
+        if (planKind === "dwg") {
+          const { convertDwg } = await import("@/lib/plans/dwg-converter");
+          const conv = await convertDwg(sourceBuffer, planFileName, "pdf");
+          if ("error" in conv) {
+            console.warn(
+              `[run-design-optimisation] DWG → PDF conversion failed for check ${check.id}: ${conv.error}. Leaving spatial_layout null.`,
+            );
+            return null;
+          }
+          pdfBuffer = Buffer.from(conv.buffer);
+        } else if (
+          planKind === "rvt" ||
+          planKind === "skp" ||
+          planKind === "doc"
+        ) {
+          const { convertViaCloudConvert } = await import(
+            "@/lib/plans/dwg-converter"
+          );
+          const ext = planFileName.split(".").pop()?.toLowerCase() ?? "";
+          const inputFormat =
+            planKind === "rvt"
+              ? "rvt"
+              : planKind === "skp"
+                ? "skp"
+                : ext === "docx"
+                  ? "docx"
+                  : "doc";
+          const conv = await convertViaCloudConvert(
+            sourceBuffer,
+            planFileName,
+            inputFormat,
+            "pdf",
+          );
+          if ("error" in conv) {
+            console.warn(
+              `[run-design-optimisation] ${planKind} → PDF conversion failed for check ${check.id}: ${conv.error}. Leaving spatial_layout null.`,
+            );
+            return null;
+          }
+          pdfBuffer = Buffer.from(conv.buffer);
+        }
 
         const pick = await findFloorPlanPage(pdfBuffer);
         const targetPage = pick.pageNumber ?? 1;
