@@ -27,9 +27,21 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import sharp from "sharp";
-import { pdf as pdfToImg } from "pdf-to-img";
 import { extractJson } from "@/lib/ai/extract-json";
 import type { SpatialLayout } from "./types";
+
+// pdf-to-img wraps pdfjs-dist which expects DOMMatrix at module-load time.
+// Node serverless has no DOM. @napi-rs/canvas ships a native DOMMatrix class;
+// we attach it to globalThis BEFORE dynamically importing pdf-to-img.
+// Static import would hoist + evaluate before this polyfill runs.
+async function loadPdfToImg() {
+  if (typeof (globalThis as { DOMMatrix?: unknown }).DOMMatrix === "undefined") {
+    const canvas = await import("@napi-rs/canvas");
+    (globalThis as { DOMMatrix?: unknown }).DOMMatrix = canvas.DOMMatrix;
+  }
+  const mod = await import("pdf-to-img");
+  return mod.pdf;
+}
 
 const BBOX_DETECTOR_MODEL = "claude-sonnet-4-6";
 const EXTRACTOR_MODEL = "claude-sonnet-4-6";
@@ -163,6 +175,7 @@ export async function decomposeSheetAndExtractFloorPlan(
   // 1. Render at high resolution for cropping
   let fullPng: Buffer | null = null;
   try {
+    const pdfToImg = await loadPdfToImg();
     const pages = await pdfToImg(pdfBuffer, { scale: FULL_RENDER_SCALE });
     for await (const img of pages) {
       fullPng = Buffer.from(img);
