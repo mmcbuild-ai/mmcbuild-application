@@ -11,6 +11,7 @@ import {
   type DecomposerDiagnostic,
 } from "@/lib/build/spatial/full-house-extractor";
 import { convertViaCloudConvert } from "@/lib/plans/dwg-converter";
+import { extractSpatialLayoutFromDxf } from "@/lib/plans/dxf-extractor";
 import {
   detectPlanKind,
   cloudConvertInputFormat,
@@ -40,6 +41,9 @@ export type Test3DResult = {
   /** Tier 2 sheet decomposer state — surfaced so the harness can show
    * whether the fallback fired and what it found. */
   decomposer?: DecomposerDiagnostic;
+  /** When the layout was extracted directly from DXF (DWG path),
+   * 'dxf-direct'. Otherwise undefined (AI-vision path via PDF). */
+  extractedVia?: "dxf-direct" | "ai-vision";
 };
 
 export async function extractTest3D(input: {
@@ -100,6 +104,48 @@ export async function extractTest3D(input: {
         mediaType,
       };
     } else if (requiresPdfConversion(kind) || kind === "dwg") {
+      // DWG path: try DXF-direct extraction FIRST (geometry from CAD entities,
+      // no AI vision, no rasterisation). DWGs with proper wall layers come
+      // back here. Only fall through to PDF + AI vision if the DXF path
+      // returns no viable layout (e.g. wall layers aren't recognised, or the
+      // DXF has no model-space entities).
+      if (kind === "dwg") {
+        const dxfConv = await convertViaCloudConvert(
+          sourceBuffer,
+          fileName,
+          "dwg",
+          "dxf",
+        );
+        if (!("error" in dxfConv)) {
+          const dxfLayout = extractSpatialLayoutFromDxf(dxfConv.buffer);
+          if (dxfLayout) {
+            // Default gable roof so the 3D viewer has something to render.
+            // Wall height stays at the DXF extractor default (2.4m).
+            if (!dxfLayout.roof) {
+              dxfLayout.roof = {
+                form: "gable",
+                pitch_deg: 22.5,
+                eave_overhang_m: 0.5,
+              };
+            }
+            return {
+              layout: dxfLayout,
+              kind,
+              convertedFrom: "dwg",
+              extractedVia: "dxf-direct",
+            };
+          }
+          console.log(
+            "[test-3d] DXF extraction returned null — falling through to PDF + AI vision",
+          );
+        } else {
+          console.log(
+            "[test-3d] CloudConvert DWG → DXF failed, falling through to PDF: ",
+            dxfConv.error,
+          );
+        }
+      }
+
       const inputFormat =
         kind === "dwg" ? "dwg" : cloudConvertInputFormat(kind, fileName);
       if (!inputFormat) {

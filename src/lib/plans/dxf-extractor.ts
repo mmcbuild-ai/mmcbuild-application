@@ -7,6 +7,7 @@
  */
 
 import DxfParser from "dxf-parser";
+import type { SpatialLayout, Wall } from "@/lib/build/spatial/types";
 
 export interface LayerSummary {
   /** Layer name as defined in the CAD file (e.g. "Walls", "A-WALL", "Doors"). */
@@ -41,15 +42,29 @@ export interface ExtractedLayers {
   totalEntities: number;
 }
 
+interface DxfPoint {
+  x: number;
+  y: number;
+  z?: number;
+}
+
 interface DxfEntity {
   type: string;
   layer?: string;
   text?: string;
   name?: string;
+  /** LINE entities — DXF Point3D in drawing units. */
+  startPoint?: DxfPoint;
+  endPoint?: DxfPoint;
+  /** LWPOLYLINE / POLYLINE vertices in drawing units. */
+  vertices?: DxfPoint[];
+  /** Whether the polyline forms a closed loop. */
+  shape?: boolean;
 }
 
 interface DxfDocument {
   entities?: DxfEntity[];
+  header?: { $INSUNITS?: number };
   tables?: {
     layer?: {
       layers?: Record<string, { name?: string }>;
@@ -142,6 +157,188 @@ export function extractLayersFromDxf(dxfBuffer: Buffer): ExtractedLayers | null 
 
 function countMatches(blocks: BlockReference[], re: RegExp): number {
   return blocks.reduce((sum, b) => (re.test(b.name) ? sum + b.count : sum), 0);
+}
+
+/**
+ * DXF $INSUNITS values → metres-per-unit conversion factor. Defaults to mm
+ * (the de-facto Australian residential CAD unit) when the header is missing
+ * or unitless. AutoCAD's MEASUREMENT system variable affects this if INSUNITS
+ * is 0, but mm is the safest pragmatic default for the AU market.
+ */
+function unitFactorToMetres(insunits: number | undefined): number {
+  switch (insunits) {
+    case 1:
+      return 0.0254; // inches
+    case 2:
+      return 0.3048; // feet
+    case 4:
+      return 0.001; // millimetres
+    case 5:
+      return 0.01; // centimetres
+    case 6:
+      return 1.0; // metres
+    default:
+      return 0.001; // unitless / unknown → assume millimetres
+  }
+}
+
+const WALL_LAYER_RE = /\b(wall|a-?wall|wall-?ext|wall-?int)\b/i;
+const MIN_WALL_LENGTH_M = 0.3; // segments shorter than 30cm are usually annotations or hatching, not real walls
+const MAX_WALL_LENGTH_M = 50; // segments longer than 50m are usually titleblock/sheet borders, not walls
+
+interface RawSegment {
+  start: { x: number; y: number };
+  end: { x: number; y: number };
+}
+
+/**
+ * Extract a SpatialLayout from a DXF buffer by reading LINE / LWPOLYLINE
+ * entities on wall-named layers. MVP scope: walls only — no rooms, no
+ * openings, no roof. The caller composes the rest of the layout (e.g.
+ * default roof, default wall height) from elsewhere.
+ *
+ * @returns SpatialLayout with walls array, or null if no viable geometry
+ *          could be found (file unparseable, no wall-layer entities, or
+ *          extracted entities are below MIN_VIABLE thresholds).
+ */
+export function extractSpatialLayoutFromDxf(
+  dxfBuffer: Buffer,
+): SpatialLayout | null {
+  const parser = new DxfParser();
+  const text = dxfBuffer.toString("utf-8");
+
+  let parsed: DxfDocument;
+  try {
+    parsed = parser.parseSync(text) as unknown as DxfDocument;
+  } catch (err) {
+    console.error("[extractSpatialLayoutFromDxf] parseSync failed:", err);
+    return null;
+  }
+
+  const entities = parsed.entities ?? [];
+  const unitFactor = unitFactorToMetres(parsed.header?.$INSUNITS);
+
+  // 1. Filter to wall-layer LINE + LWPOLYLINE / POLYLINE entities
+  const segments: RawSegment[] = [];
+  for (const ent of entities) {
+    if (!ent.layer || !WALL_LAYER_RE.test(ent.layer)) continue;
+
+    if (ent.type === "LINE" && ent.startPoint && ent.endPoint) {
+      segments.push({
+        start: { x: ent.startPoint.x, y: ent.startPoint.y },
+        end: { x: ent.endPoint.x, y: ent.endPoint.y },
+      });
+      continue;
+    }
+
+    if (
+      (ent.type === "LWPOLYLINE" || ent.type === "POLYLINE") &&
+      Array.isArray(ent.vertices) &&
+      ent.vertices.length >= 2
+    ) {
+      // Treat each adjacent vertex pair as a wall segment. If the polyline
+      // is closed (shape=true), the last→first segment is also included.
+      for (let i = 0; i < ent.vertices.length - 1; i++) {
+        const a = ent.vertices[i];
+        const b = ent.vertices[i + 1];
+        segments.push({
+          start: { x: a.x, y: a.y },
+          end: { x: b.x, y: b.y },
+        });
+      }
+      if (ent.shape && ent.vertices.length > 2) {
+        const a = ent.vertices[ent.vertices.length - 1];
+        const b = ent.vertices[0];
+        segments.push({
+          start: { x: a.x, y: a.y },
+          end: { x: b.x, y: b.y },
+        });
+      }
+    }
+  }
+
+  if (segments.length === 0) {
+    console.log(
+      "[extractSpatialLayoutFromDxf] no wall-layer entities matched",
+    );
+    return null;
+  }
+
+  // 2. Convert to metres + filter pathological segments
+  const wallSegmentsM: RawSegment[] = [];
+  for (const seg of segments) {
+    const s = {
+      x: seg.start.x * unitFactor,
+      y: seg.start.y * unitFactor,
+    };
+    const e = {
+      x: seg.end.x * unitFactor,
+      y: seg.end.y * unitFactor,
+    };
+    const len = Math.hypot(e.x - s.x, e.y - s.y);
+    if (len < MIN_WALL_LENGTH_M || len > MAX_WALL_LENGTH_M) continue;
+    wallSegmentsM.push({ start: s, end: e });
+  }
+
+  if (wallSegmentsM.length < 4) {
+    console.log(
+      `[extractSpatialLayoutFromDxf] only ${wallSegmentsM.length} viable wall segments after filter — not enough for a layout`,
+    );
+    return null;
+  }
+
+  // 3. Compute bounds + normalise origin to (0,0)
+  const xs = wallSegmentsM.flatMap((w) => [w.start.x, w.end.x]);
+  const ys = wallSegmentsM.flatMap((w) => [w.start.y, w.end.y]);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const maxX = Math.max(...xs);
+  const maxY = Math.max(...ys);
+  const width = maxX - minX;
+  const depth = maxY - minY;
+
+  // 4. Build Wall[] — naive classification: outermost segments = external,
+  // rest = internal. Use a margin-of-bounds heuristic; refined later.
+  const EXT_MARGIN_M = 0.5;
+  const walls: Wall[] = wallSegmentsM.map((seg, i) => {
+    const sx = seg.start.x - minX;
+    const sy = seg.start.y - minY;
+    const ex = seg.end.x - minX;
+    const ey = seg.end.y - minY;
+    const isExt =
+      sx < EXT_MARGIN_M ||
+      sy < EXT_MARGIN_M ||
+      ex < EXT_MARGIN_M ||
+      ey < EXT_MARGIN_M ||
+      sx > width - EXT_MARGIN_M ||
+      sy > depth - EXT_MARGIN_M ||
+      ex > width - EXT_MARGIN_M ||
+      ey > depth - EXT_MARGIN_M;
+    return {
+      id: `w${i + 1}`,
+      start: { x: sx, y: sy },
+      end: { x: ex, y: ey },
+      thickness: isExt ? 0.11 : 0.09,
+      type: isExt ? ("external" as const) : ("internal" as const),
+      material: "timber_frame",
+    };
+  });
+
+  return {
+    walls,
+    rooms: [],
+    openings: [],
+    bounds: {
+      min: { x: 0, y: 0 },
+      max: { x: width, y: depth },
+      width,
+      depth,
+    },
+    storeys: 1,
+    wall_height: 2.4,
+    confidence: 0.85,
+    notes: `Extracted directly from DXF (walls only, ${walls.length} segments). Unit factor ${unitFactor} m/u from $INSUNITS=${parsed.header?.$INSUNITS ?? "missing"}.`,
+  };
 }
 
 /**
