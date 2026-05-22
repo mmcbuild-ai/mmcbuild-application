@@ -160,6 +160,51 @@ function countMatches(blocks: BlockReference[], re: RegExp): number {
 }
 
 /**
+ * Spatial-density cluster: takes raw segments in metres, finds the
+ * 10m×10m cell with the most segment midpoints, and returns only the
+ * segments whose midpoint is within CLUSTER_RADIUS_M of that cell's
+ * centre. Isolates one drawing from a DWG that dumps many paper-space
+ * sheets into model space.
+ */
+function clusterDensestRegion(segments: RawSegment[]): RawSegment[] {
+  if (segments.length === 0) return [];
+
+  // 1. Bucket midpoints into cells
+  type Cell = { cx: number; cy: number; count: number };
+  const cells = new Map<string, Cell>();
+  for (const seg of segments) {
+    const mx = (seg.start.x + seg.end.x) / 2;
+    const my = (seg.start.y + seg.end.y) / 2;
+    const cx = Math.floor(mx / CLUSTER_CELL_M);
+    const cy = Math.floor(my / CLUSTER_CELL_M);
+    const key = `${cx}:${cy}`;
+    const existing = cells.get(key);
+    if (existing) existing.count++;
+    else cells.set(key, { cx, cy, count: 1 });
+  }
+
+  // 2. Find densest cell
+  let densest: Cell | null = null;
+  for (const cell of cells.values()) {
+    if (!densest || cell.count > densest.count) densest = cell;
+  }
+  if (!densest) return [];
+
+  // Cell centre in metres
+  const centreX = (densest.cx + 0.5) * CLUSTER_CELL_M;
+  const centreY = (densest.cy + 0.5) * CLUSTER_CELL_M;
+
+  // 3. Keep only segments whose midpoint is within CLUSTER_RADIUS_M
+  return segments.filter((seg) => {
+    const mx = (seg.start.x + seg.end.x) / 2;
+    const my = (seg.start.y + seg.end.y) / 2;
+    const dx = mx - centreX;
+    const dy = my - centreY;
+    return Math.hypot(dx, dy) <= CLUSTER_RADIUS_M;
+  });
+}
+
+/**
  * DXF $INSUNITS values → metres-per-unit conversion factor. Defaults to mm
  * (the de-facto Australian residential CAD unit) when the header is missing
  * or unitless. AutoCAD's MEASUREMENT system variable affects this if INSUNITS
@@ -196,7 +241,15 @@ const WALL_LAYER_INCLUDE_RE =
 const WALL_LAYER_EXCLUDE_RE =
   /(annotation|dim|dimension|text|hatch|leader|title|legend|north|grid|axis|symbol|furniture|equipment|electrical|plumb|hydraulic|mechanical|fire)/i;
 const MIN_WALL_LENGTH_M = 0.3; // segments shorter than 30cm are usually annotations or hatching, not real walls
-const MAX_WALL_LENGTH_M = 50; // segments longer than 50m are usually titleblock/sheet borders, not walls
+const MAX_WALL_LENGTH_M = 25; // segments longer than 25m are usually titleblock/sheet borders, not house walls
+// Spatial clustering — many DWGs (notably SAHA's sheet-set Row Homes)
+// dump 20+ paper-space sheets into MODEL space. parsed.entities then
+// contains the ENTIRE set's worth of titleblocks, viewport rectangles,
+// and scattered drawings. We isolate ONE house by finding the densest
+// 10m×10m cell in the segment-midpoint grid and keeping only segments
+// whose midpoint is within CLUSTER_RADIUS_M of that cell's centre.
+const CLUSTER_CELL_M = 10;
+const CLUSTER_RADIUS_M = 30;
 
 interface RawSegment {
   start: { x: number; y: number };
@@ -302,9 +355,25 @@ export function extractSpatialLayoutFromDxf(
     return null;
   }
 
-  // 3. Compute bounds + normalise origin to (0,0)
-  const xs = wallSegmentsM.flatMap((w) => [w.start.x, w.end.x]);
-  const ys = wallSegmentsM.flatMap((w) => [w.start.y, w.end.y]);
+  // 3. Spatial clustering — isolate ONE house. DWGs that dump multiple
+  // paper-space sheets into model space (e.g. SAHA Row Homes) yield
+  // thousands of segments spread across kilometres. Bucket segment
+  // midpoints into CLUSTER_CELL_M grid cells, find the densest cell,
+  // keep only segments within CLUSTER_RADIUS_M of its centre.
+  const clusteredSegments = clusterDensestRegion(wallSegmentsM);
+  if (clusteredSegments.length < 4) {
+    console.log(
+      `[extractSpatialLayoutFromDxf] clustering left ${clusteredSegments.length} segments (from ${wallSegmentsM.length}) — not enough for a layout`,
+    );
+    return null;
+  }
+  console.log(
+    `[extractSpatialLayoutFromDxf] clustered ${wallSegmentsM.length} → ${clusteredSegments.length} segments`,
+  );
+
+  // 4. Compute bounds of the clustered region + normalise origin to (0,0)
+  const xs = clusteredSegments.flatMap((w) => [w.start.x, w.end.x]);
+  const ys = clusteredSegments.flatMap((w) => [w.start.y, w.end.y]);
   const minX = Math.min(...xs);
   const minY = Math.min(...ys);
   const maxX = Math.max(...xs);
@@ -312,10 +381,19 @@ export function extractSpatialLayoutFromDxf(
   const width = maxX - minX;
   const depth = maxY - minY;
 
-  // 4. Build Wall[] — naive classification: outermost segments = external,
+  // Sanity: if the cluster spans more than 100m in either axis, something
+  // is still wrong — fall back rather than render kilometre-scale geometry.
+  if (width > 100 || depth > 100) {
+    console.log(
+      `[extractSpatialLayoutFromDxf] clustered bounds ${width.toFixed(0)}×${depth.toFixed(0)}m exceed 100m sanity cap — returning null`,
+    );
+    return null;
+  }
+
+  // 5. Build Wall[] — naive classification: outermost segments = external,
   // rest = internal. Use a margin-of-bounds heuristic; refined later.
   const EXT_MARGIN_M = 0.5;
-  const walls: Wall[] = wallSegmentsM.map((seg, i) => {
+  const walls: Wall[] = clusteredSegments.map((seg, i) => {
     const sx = seg.start.x - minX;
     const sy = seg.start.y - minY;
     const ex = seg.end.x - minX;
