@@ -49,15 +49,17 @@ export const runTest3DExtractionFn = inngest.createFunction(
       return Buffer.from(arr).toString("base64");
     });
 
-    // The extraction itself isn't wrapped in step.run — it's a single long
-    // operation (10s to several minutes) that doesn't benefit from Inngest
-    // checkpointing the same way the I/O steps do. If it throws, the catch
-    // below writes the error to the job row and returns; we don't want
-    // Inngest to retry the whole extraction on transient AI errors (cost).
+    // The extraction MUST be wrapped in step.run. Otherwise it executes
+    // inline in the same Vercel invocation as the previous steps and the
+    // accumulated invocation time can exceed the 300s maxDuration ceiling.
+    // step.run gives this work its own invocation with its own budget; if
+    // it throws, Inngest catches it cleanly and we mark the job as error.
     let result;
     try {
-      const buf = Buffer.from(sourceBuffer, "base64");
-      result = await runTest3DExtraction(buf, fileName, pageInput);
+      result = await step.run("run-extraction", async () => {
+        const buf = Buffer.from(sourceBuffer, "base64");
+        return await runTest3DExtraction(buf, fileName, pageInput);
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[run-test-3d-extraction] runner threw:", message);

@@ -1,4 +1,11 @@
 import { serve } from "inngest/next";
+
+// Inngest functions run as Vercel serverless invocations. The default
+// per-invocation timeout is 60s, which isn't enough for the test-3d
+// extraction (CloudConvert DWG→DXF/PDF + Sonnet calls can push 3–4 min).
+// Lift to the Pro-plan ceiling of 300s. Functions still use step.run for
+// finer-grained checkpointing.
+export const maxDuration = 300;
 import { inngest } from "@/lib/inngest/client";
 import { testFunction } from "@/lib/inngest/functions/test-function";
 import { processPlan } from "@/lib/inngest/functions/process-plan";
