@@ -182,7 +182,16 @@ function unitFactorToMetres(insunits: number | undefined): number {
   }
 }
 
-const WALL_LAYER_RE = /\b(wall|a-?wall|wall-?ext|wall-?int)\b/i;
+// Architects use very different layer naming conventions. Studio Johnston
+// uses /\bwall\b/; SAHA uses "2. Architecturals$0.05/0.1/0.15" with no
+// "wall" string anywhere; AIA standard is "A-WALL-*"; some practices use
+// "ARC-PARTITION" etc. Include layers that match any of the common
+// wall-bearing patterns. Exclude annotation / dim / hatch / text / title
+// layers so we don't pick up labels and leader lines as walls.
+const WALL_LAYER_INCLUDE_RE =
+  /\b(wall|a-?wall|partition|architectural|model|construct|building|footprint|outline)\b/i;
+const WALL_LAYER_EXCLUDE_RE =
+  /\b(annotation|annotations|dim|dimension|text|hatch|leader|title|legend|north|grid|axis|symbol|furniture|equipment|electrical|plumb|hydraulic|mechanical|fire)\b/i;
 const MIN_WALL_LENGTH_M = 0.3; // segments shorter than 30cm are usually annotations or hatching, not real walls
 const MAX_WALL_LENGTH_M = 50; // segments longer than 50m are usually titleblock/sheet borders, not walls
 
@@ -218,10 +227,13 @@ export function extractSpatialLayoutFromDxf(
   const entities = parsed.entities ?? [];
   const unitFactor = unitFactorToMetres(parsed.header?.$INSUNITS);
 
-  // 1. Filter to wall-layer LINE + LWPOLYLINE / POLYLINE entities
+  // 1. Filter to wall-bearing LINE + LWPOLYLINE / POLYLINE entities.
+  // Layer must MATCH the wall-include regex AND NOT match the exclude regex.
   const segments: RawSegment[] = [];
   for (const ent of entities) {
-    if (!ent.layer || !WALL_LAYER_RE.test(ent.layer)) continue;
+    if (!ent.layer) continue;
+    if (WALL_LAYER_EXCLUDE_RE.test(ent.layer)) continue;
+    if (!WALL_LAYER_INCLUDE_RE.test(ent.layer)) continue;
 
     if (ent.type === "LINE" && ent.startPoint && ent.endPoint) {
       segments.push({
