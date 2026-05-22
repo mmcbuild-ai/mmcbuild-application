@@ -38,7 +38,10 @@ import type { SpatialLayout } from "./types";
 const BBOX_DETECTOR_MODEL = "claude-sonnet-4-6";
 const EXTRACTOR_MODEL = "claude-sonnet-4-6";
 const PAD_PCT = 2;
-const MAX_CANDIDATES_TO_TRY = 6;
+// Capped at 2 (was 6) so the decomposer fits inside Vercel's ~60s edge
+// connection-close window. Two highest-confidence candidates run in
+// parallel; first to produce a viable layout wins.
+const MAX_CANDIDATES_TO_TRY = 2;
 const MIN_VIABLE_WALLS = 4;
 const MIN_VIABLE_ROOMS = 1;
 
@@ -282,24 +285,37 @@ export async function decomposeSheetAndExtractFloorPlan(
     };
   }
 
-  // 3. Iterate through candidates, return first that verifies + extracts
-  for (let i = 0; i < Math.min(candidates.length, MAX_CANDIDATES_TO_TRY); i++) {
-    const pick = candidates[i];
+  // 3. Run verify-extract on the top candidates IN PARALLEL so the
+  // decomposer total latency is max(per-candidate) rather than sum(...).
+  // Sequential would push us over the Vercel edge connection-close window.
+  // Extended thinking is dropped on verify-extract — it's a simpler task
+  // than bbox detection and not worth the latency.
+  const picks = candidates.slice(0, MAX_CANDIDATES_TO_TRY);
 
+  type CandidateAttempt = SheetDecompositionResult["attempts"][number];
+  type CandidateResolution = {
+    attempt: CandidateAttempt;
+    viable: SpatialLayout | null;
+  };
+
+  async function runCandidate(
+    pick: DrawingRegion,
+  ): Promise<CandidateResolution> {
     const croppedPdfBase64 = await cropPdfPageToBbox(sourceBytes, pick.bbox);
     if (!croppedPdfBase64) {
-      attempts.push({
-        candidate: pick,
-        outcome: { kind: "error", message: "pdf-lib crop failed" },
-      });
-      continue;
+      return {
+        attempt: {
+          candidate: pick,
+          outcome: { kind: "error", message: "pdf-lib crop failed" },
+        },
+        viable: null,
+      };
     }
 
     try {
       const resp = await anthropic.messages.create({
         model: EXTRACTOR_MODEL,
         max_tokens: 8192,
-        thinking: { type: "enabled", budget_tokens: 4096 },
         system: VERIFY_EXTRACT_PROMPT,
         messages: [
           {
@@ -323,11 +339,13 @@ export async function decomposeSheetAndExtractFloorPlan(
       });
       const text = resp.content.find((b) => b.type === "text");
       if (!text || text.type !== "text") {
-        attempts.push({
-          candidate: pick,
-          outcome: { kind: "error", message: "no text response" },
-        });
-        continue;
+        return {
+          attempt: {
+            candidate: pick,
+            outcome: { kind: "error", message: "no text response" },
+          },
+          viable: null,
+        };
       }
       const parsed = extractJson<
         | { error: string; detected: string }
@@ -335,53 +353,79 @@ export async function decomposeSheetAndExtractFloorPlan(
       >(text.text);
 
       if (!parsed) {
-        attempts.push({
-          candidate: pick,
-          outcome: { kind: "error", message: "JSON parse failed" },
-        });
-        continue;
+        return {
+          attempt: {
+            candidate: pick,
+            outcome: { kind: "error", message: "JSON parse failed" },
+          },
+          viable: null,
+        };
       }
       if ("error" in parsed && parsed.error) {
-        attempts.push({
-          candidate: pick,
-          outcome: {
-            kind: "rejected",
-            detectedAs: (parsed as { detected: string }).detected,
+        return {
+          attempt: {
+            candidate: pick,
+            outcome: {
+              kind: "rejected",
+              detectedAs: (parsed as { detected: string }).detected,
+            },
           },
-        });
-        continue;
+          viable: null,
+        };
       }
 
       const layout = parsed as SpatialLayout;
       const w = layout.walls?.length || 0;
       const r = layout.rooms?.length || 0;
+      const viable =
+        w >= MIN_VIABLE_WALLS && r >= MIN_VIABLE_ROOMS ? layout : null;
 
-      attempts.push({
-        candidate: pick,
-        outcome: {
-          kind: "extracted",
-          walls: w,
-          rooms: r,
-          confidence: layout.confidence ?? 0,
+      return {
+        attempt: {
+          candidate: pick,
+          outcome: {
+            kind: "extracted",
+            walls: w,
+            rooms: r,
+            confidence: layout.confidence ?? 0,
+          },
         },
-      });
-
-      if (w >= MIN_VIABLE_WALLS && r >= MIN_VIABLE_ROOMS) {
-        return {
-          layout,
-          attempts,
-          drawingsDetected: drawings.length,
-        };
-      }
+        viable,
+      };
     } catch (err) {
+      return {
+        attempt: {
+          candidate: pick,
+          outcome: {
+            kind: "error",
+            message: err instanceof Error ? err.message : String(err),
+          },
+        },
+        viable: null,
+      };
+    }
+  }
+
+  const settled = await Promise.allSettled(picks.map(runCandidate));
+  let winning: SpatialLayout | null = null;
+  for (let i = 0; i < settled.length; i++) {
+    const r = settled[i];
+    if (r.status === "fulfilled") {
+      attempts.push(r.value.attempt);
+      if (!winning && r.value.viable) winning = r.value.viable;
+    } else {
       attempts.push({
-        candidate: pick,
+        candidate: picks[i],
         outcome: {
           kind: "error",
-          message: err instanceof Error ? err.message : String(err),
+          message: r.reason instanceof Error ? r.reason.message : String(r.reason),
         },
       });
     }
+  }
+
+  if (winning) {
+    return { layout: winning, attempts, drawingsDetected: drawings.length };
   }
 
   return {
