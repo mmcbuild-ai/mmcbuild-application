@@ -14,21 +14,31 @@ import { extractSpatialLayout } from "@/lib/build/spatial/extractor";
 import type { Test3DResult } from "@/lib/build/test-3d-runner";
 
 /**
- * Async runner for /build/test-3d uploads, split into per-stage step.run
- * blocks so each Vercel invocation fits inside the 300s maxDuration ceiling.
- * A single step.run wrapping the whole extraction blew past 300s on DWGs,
- * Vercel killed the invocation, Inngest's transport-level retries spun
- * forever without ever marking the job done or error.
+ * Test-3D extraction orchestrator. Each heavy operation runs as its own
+ * step.run so it gets its own Vercel /api/inngest invocation with the
+ * full 300s maxDuration budget. Previously a monolithic pdf-path step
+ * accumulated CloudConvert + classifier + extractor + decomposer in one
+ * invocation and exceeded 300s, causing Vercel to kill the dispatch and
+ * Inngest's transport-level retries to spin indefinitely.
  *
- * Stages (each its own Vercel invocation):
+ * Pipeline:
  *   mark-processing       — write started_at
- *   dwg-dxf-path          — DWG only: download → DXF → wall-layer extract
- *   pdf-path              — fallback/non-DWG: download → PDF → full-house
- *   write-result          — final status='done' + result jsonb
+ *   IF image:
+ *     extract-image       — direct image → SpatialLayout, write done
+ *   IF dwg:
+ *     dwg-dxf-path        — try DWG → DXF → wall-layer extract
+ *     write-dxf-result    — early exit if DXF won
+ *   convert-to-pdf        — pass-through native PDFs, CloudConvert others.
+ *                           Intermediate PDF written to a temp path in the
+ *                           plan-uploads bucket; only the path string
+ *                           passes through Inngest (avoids the per-step
+ *                           1MB result-size limit on base64 payloads).
+ *   extract-full-house    — read PDF from temp path, run classifier +
+ *                           extractor + decomposer, return Test3DResult.
+ *   write-result          — final status='done' + result jsonb.
  *
- * The source file is re-downloaded from Storage inside each path step. The
- * round-trip is fast (15MB / a few seconds) and avoids passing 20MB+ base64
- * payloads through Inngest's per-step result-size limit (default 1MB).
+ * Intermediate temp PDFs accumulate in <org_id>/test-3d/intermediate/.
+ * Best-effort cleanup is a future cron — not blocking shipping.
  */
 export const runTest3DExtractionFn = inngest.createFunction(
   {
@@ -56,12 +66,28 @@ export const runTest3DExtractionFn = inngest.createFunction(
       return { jobId, status: "error" };
     }
 
-    // Stage 1 — DWG-only DXF path. Returns a Test3DResult when it produces
-    // a viable layout, null when the file isn't DWG or DXF didn't yield
-    // a usable layout (caller falls through to the PDF path).
+    // Image kind — skip everything else, extract directly
+    if (kind === "image") {
+      const result = await step.run("extract-image", async () => {
+        return await extractImagePath(storagePath, fileName, kind);
+      });
+      await step.run("write-image-result", async () => {
+        await db()
+          .from("test_3d_jobs")
+          .update({
+            status: "done",
+            result,
+            finished_at: new Date().toISOString(),
+          })
+          .eq("id", jobId);
+      });
+      return { jobId, status: "done" };
+    }
+
+    // DWG kind — try DXF-direct first
     if (kind === "dwg") {
       const dxfResult = await step.run("dwg-dxf-path", async () => {
-        const buf = await downloadSourceBuffer(storagePath);
+        const buf = await downloadFromBucket(storagePath);
         if (!buf) return null;
         const dxfConv = await convertViaCloudConvert(buf, fileName, "dwg", "dxf");
         if ("error" in dxfConv) {
@@ -104,11 +130,26 @@ export const runTest3DExtractionFn = inngest.createFunction(
       }
     }
 
-    // Stage 2 — PDF + AI vision path. Handles native PDFs, images, and the
-    // DWG fallback when DXF didn't produce a layout. Returns the final
-    // Test3DResult (including its own error field if extraction failed).
-    const pdfResult = await step.run("pdf-path", async () => {
-      return await runPdfPath(storagePath, kind, fileName, pageInput);
+    // PDF-route: native PDFs pass through, others go via CloudConvert.
+    // The converted PDF lives in a temp storage path; only the path
+    // string travels between steps so we don't blow the Inngest 1MB
+    // per-step result limit on multi-MB PDFs.
+    const conv = await step.run("convert-to-pdf", async () => {
+      return await convertToPdfStep(storagePath, fileName, kind, jobId);
+    });
+
+    if ("error" in conv) {
+      await markError(jobId, conv.error);
+      return { jobId, status: "error" };
+    }
+
+    const result = await step.run("extract-full-house", async () => {
+      return await extractFromPdfPath(
+        conv.pdfPath,
+        kind,
+        conv.convertedFrom,
+        pageInput,
+      );
     });
 
     await step.run("write-result", async () => {
@@ -116,7 +157,7 @@ export const runTest3DExtractionFn = inngest.createFunction(
         .from("test_3d_jobs")
         .update({
           status: "done",
-          result: pdfResult,
+          result,
           finished_at: new Date().toISOString(),
         })
         .eq("id", jobId);
@@ -126,13 +167,17 @@ export const runTest3DExtractionFn = inngest.createFunction(
   },
 );
 
-async function downloadSourceBuffer(storagePath: string): Promise<Buffer | null> {
+async function downloadFromBucket(path: string): Promise<Buffer | null> {
   const admin = createAdminClient();
   const { data, error } = await admin.storage
     .from("plan-uploads")
-    .download(storagePath);
+    .download(path);
   if (error || !data) {
-    console.error("[run-test-3d-extraction] storage download failed:", error);
+    console.error(
+      "[run-test-3d-extraction] download failed:",
+      path,
+      error?.message,
+    );
     return null;
   }
   return Buffer.from(await data.arrayBuffer());
@@ -150,135 +195,156 @@ async function markError(jobId: string, message: string) {
 }
 
 /**
- * PDF / image / DWG-fallback extraction path. Mirrors the logic that was
- * previously in src/lib/build/test-3d-runner.ts for non-DXF inputs, but
- * inlined here so the entire path runs inside one step.run invocation
- * and we can keep the runner module focused on its current consumers
- * (legacy sync action paths if any).
+ * Image path — PNG/JPG only. WebP rejected. Direct Sonnet image-content
+ * extraction, no PDF detour, no decomposer.
  */
-async function runPdfPath(
+async function extractImagePath(
   storagePath: string,
-  kind: PlanFileKind,
   fileName: string,
-  pageInput?: string,
+  kind: PlanFileKind,
 ): Promise<Test3DResult> {
-  const sourceBuffer = await downloadSourceBuffer(storagePath);
+  const sourceBuffer = await downloadFromBucket(storagePath);
   if (!sourceBuffer) {
     return { layout: null, kind, error: "Storage download failed" };
   }
-
-  try {
-    let pdfBuffer: Buffer | null = null;
-    let convertedFrom: PlanFileKind | undefined;
-    let directImage: {
-      base64: string;
-      mediaType: "image/png" | "image/jpeg";
-    } | null = null;
-
-    if (kind === "pdf") {
-      pdfBuffer = sourceBuffer;
-    } else if (kind === "image") {
-      const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
-      if (ext === "webp") {
-        return {
-          layout: null,
-          kind,
-          error:
-            "WebP not supported by the current extractor. Convert to PNG/JPG and re-upload.",
-        };
-      }
-      const mediaType: "image/png" | "image/jpeg" =
-        ext === "png" ? "image/png" : "image/jpeg";
-      directImage = {
-        base64: sourceBuffer.toString("base64"),
-        mediaType,
-      };
-    } else if (requiresPdfConversion(kind) || kind === "dwg") {
-      const inputFormat =
-        kind === "dwg" ? "dwg" : cloudConvertInputFormat(kind, fileName);
-      if (!inputFormat) {
-        return {
-          layout: null,
-          kind,
-          error: `No CloudConvert input format for kind: ${kind}`,
-        };
-      }
-      const conv = await convertViaCloudConvert(
-        sourceBuffer,
-        fileName,
-        inputFormat,
-        "pdf",
-      );
-      if ("error" in conv) {
-        return {
-          layout: null,
-          kind,
-          error: `CloudConvert ${kind} → PDF failed: ${conv.error}`,
-        };
-      }
-      pdfBuffer = conv.buffer;
-      convertedFrom = kind;
-    } else {
-      return {
-        layout: null,
-        kind,
-        error: `Unsupported kind in harness: ${kind}`,
-      };
-    }
-
-    if (pdfBuffer) {
-      const requestedPage =
-        pageInput && pageInput.trim() !== ""
-          ? Number(pageInput.trim())
-          : undefined;
-      const pdfBase64 = pdfBuffer.toString("base64");
-      const result = await extractFullHouse(pdfBase64, {
-        floorPlanPageOverride: requestedPage,
-      });
-
-      if (result.error || !result.layout) {
-        return {
-          layout: null,
-          kind,
-          convertedFrom,
-          detectedPage: result.floorPlanPage ?? undefined,
-          pdfPageCount: result.totalPages ?? undefined,
-          classifications: result.classifications,
-          decomposer: result.decomposer,
-          error: result.error ?? "PDF extraction returned no layout",
-        };
-      }
-
-      return {
-        layout: result.layout,
-        detectedPage:
-          requestedPage == null ? (result.floorPlanPage ?? undefined) : undefined,
-        pageUsed: requestedPage ?? (result.floorPlanPage ?? undefined),
-        pdfPageCount: result.totalPages ?? undefined,
-        kind,
-        convertedFrom,
-        classifications: result.classifications,
-        elevationsExtracted: result.elevationsExtracted.length,
-        sectionPage: result.sectionExtracted?.pageNumber,
-        schedulePage: result.scheduleExtracted?.pageNumber,
-        decomposer: result.decomposer,
-      };
-    }
-
-    if (directImage) {
-      const layout = await extractSpatialLayout(
-        directImage.base64,
-        directImage.mediaType,
-      );
-      return { layout, kind };
-    }
-
-    return { layout: null, kind, error: "Unreachable code path" };
-  } catch (err) {
-    console.error("[run-test-3d-extraction] runPdfPath threw:", err);
+  const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+  if (ext === "webp") {
     return {
       layout: null,
       kind,
+      error:
+        "WebP not supported by the current extractor. Convert to PNG/JPG and re-upload.",
+    };
+  }
+  const mediaType: "image/png" | "image/jpeg" =
+    ext === "png" ? "image/png" : "image/jpeg";
+  const layout = await extractSpatialLayout(
+    sourceBuffer.toString("base64"),
+    mediaType,
+  );
+  return { layout, kind };
+}
+
+/**
+ * Convert-to-PDF step. Returns the storage path of the PDF (the original
+ * path for native-PDF uploads, or a freshly-written intermediate path
+ * for CloudConvert outputs). Caller passes only the path string forward;
+ * the next step downloads the bytes.
+ */
+async function convertToPdfStep(
+  storagePath: string,
+  fileName: string,
+  kind: PlanFileKind,
+  jobId: string,
+): Promise<
+  | { pdfPath: string; convertedFrom: PlanFileKind | undefined }
+  | { error: string }
+> {
+  if (kind === "pdf") {
+    return { pdfPath: storagePath, convertedFrom: undefined };
+  }
+  if (!requiresPdfConversion(kind) && kind !== "dwg") {
+    return { error: `Unsupported kind for PDF route: ${kind}` };
+  }
+
+  const inputFormat =
+    kind === "dwg" ? "dwg" : cloudConvertInputFormat(kind, fileName);
+  if (!inputFormat) {
+    return { error: `No CloudConvert input format for kind: ${kind}` };
+  }
+
+  const sourceBuffer = await downloadFromBucket(storagePath);
+  if (!sourceBuffer) return { error: "Storage download failed (source)" };
+
+  const conv = await convertViaCloudConvert(
+    sourceBuffer,
+    fileName,
+    inputFormat,
+    "pdf",
+  );
+  if ("error" in conv) {
+    return { error: `CloudConvert ${kind} → PDF failed: ${conv.error}` };
+  }
+
+  // Write intermediate PDF to storage under the same org bucket so the
+  // next step can read it. Path is keyed by jobId for uniqueness.
+  const orgPrefix = storagePath.split("/")[0] || "shared";
+  const intermediatePath = `${orgPrefix}/test-3d/intermediate/${jobId}.pdf`;
+  const admin = createAdminClient();
+  const { error: uploadError } = await admin.storage
+    .from("plan-uploads")
+    .upload(intermediatePath, conv.buffer, {
+      contentType: "application/pdf",
+      upsert: true,
+    });
+  if (uploadError) {
+    return {
+      error: `Intermediate PDF upload failed: ${uploadError.message}`,
+    };
+  }
+
+  return { pdfPath: intermediatePath, convertedFrom: kind };
+}
+
+/**
+ * Extract-full-house step. Reads the PDF (intermediate or original) from
+ * storage and runs the full classifier + extractor + decomposer chain.
+ * Returns the final Test3DResult.
+ */
+async function extractFromPdfPath(
+  pdfPath: string,
+  kind: PlanFileKind,
+  convertedFrom: PlanFileKind | undefined,
+  pageInput?: string,
+): Promise<Test3DResult> {
+  const pdfBuffer = await downloadFromBucket(pdfPath);
+  if (!pdfBuffer) {
+    return { layout: null, kind, convertedFrom, error: "PDF download failed" };
+  }
+
+  try {
+    const requestedPage =
+      pageInput && pageInput.trim() !== ""
+        ? Number(pageInput.trim())
+        : undefined;
+    const pdfBase64 = pdfBuffer.toString("base64");
+    const result = await extractFullHouse(pdfBase64, {
+      floorPlanPageOverride: requestedPage,
+    });
+
+    if (result.error || !result.layout) {
+      return {
+        layout: null,
+        kind,
+        convertedFrom,
+        detectedPage: result.floorPlanPage ?? undefined,
+        pdfPageCount: result.totalPages ?? undefined,
+        classifications: result.classifications,
+        decomposer: result.decomposer,
+        error: result.error ?? "PDF extraction returned no layout",
+      };
+    }
+
+    return {
+      layout: result.layout,
+      detectedPage:
+        requestedPage == null ? (result.floorPlanPage ?? undefined) : undefined,
+      pageUsed: requestedPage ?? (result.floorPlanPage ?? undefined),
+      pdfPageCount: result.totalPages ?? undefined,
+      kind,
+      convertedFrom,
+      classifications: result.classifications,
+      elevationsExtracted: result.elevationsExtracted.length,
+      sectionPage: result.sectionExtracted?.pageNumber,
+      schedulePage: result.scheduleExtracted?.pageNumber,
+      decomposer: result.decomposer,
+    };
+  } catch (err) {
+    console.error("[run-test-3d-extraction] extract-full-house threw:", err);
+    return {
+      layout: null,
+      kind,
+      convertedFrom,
       error: err instanceof Error ? err.message : String(err),
     };
   }
