@@ -87,4 +87,12 @@ export type Events = {
       sourceId: string;
     };
   };
+  "test3d/extract.requested": {
+    data: {
+      jobId: string;
+      storagePath: string;
+      fileName: string;
+      pageInput?: string;
+    };
+  };
 };

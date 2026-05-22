@@ -5,7 +5,8 @@ import { Loader2, FileText, Image as ImageIcon } from "lucide-react";
 import { PlanComparison3D } from "./plan-comparison-3d";
 import { SystemExplorerView } from "./system-explorer-view";
 import {
-  extractTest3D,
+  enqueueTest3D,
+  getTest3DStatus,
   type Test3DResult,
 } from "@/app/(dashboard)/build/test-3d/actions";
 import { Button } from "@/components/ui/button";
@@ -115,12 +116,51 @@ export function Test3DHarness() {
 
       setPhase("extracting");
 
-      const res = await extractTest3D({
+      const enqueueRes = await enqueueTest3D({
         storagePath,
         fileName: file.name,
         pageInput: page.trim() || undefined,
       });
-      setResult(res);
+      if ("error" in enqueueRes) {
+        setResult({ layout: null, error: enqueueRes.error });
+        setPhase("idle");
+        return;
+      }
+
+      // Poll every 2s until done / error. Inngest can take several minutes
+      // for DWGs with the full decomposer chain — cap the wait at 5 minutes
+      // so a hung job doesn't spin forever.
+      const POLL_INTERVAL_MS = 2000;
+      const MAX_POLL_ATTEMPTS = 150; // 5 minutes
+      for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        const status = await getTest3DStatus(enqueueRes.jobId);
+        if (status.status === "done") {
+          setResult(status.result);
+          setPhase("idle");
+          return;
+        }
+        if (status.status === "error") {
+          setResult({ layout: null, error: status.error });
+          setPhase("idle");
+          return;
+        }
+        if (
+          status.status === "not_found" ||
+          status.status === "unauthorised"
+        ) {
+          setResult({
+            layout: null,
+            error: `Job state lost (${status.status}). Please retry.`,
+          });
+          setPhase("idle");
+          return;
+        }
+      }
+      setResult({
+        layout: null,
+        error: "Extraction did not complete within 5 minutes. Check Inngest dashboard for run state.",
+      });
     } catch (err) {
       setResult({
         layout: null,

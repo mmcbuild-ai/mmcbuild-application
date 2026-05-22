@@ -1,241 +1,125 @@
 "use server";
 
-// Note: maxDuration for this Server Action is configured on the page
-// route (src/app/(dashboard)/build/test-3d/page.tsx). Next.js's
-// "use server" files only allow async exports.
+// The /build/test-3d harness used to run extraction synchronously inside
+// this Server Action. That worked for PDFs (single Sonnet call) but blew
+// past the Vercel edge ~60s connection-close window for DWG/RVT/SKP files
+// that need CloudConvert + sheet decomposer + multiple AI calls. Per the
+// project rule (CLAUDE.md: "operations >5s MUST use Inngest"), this is
+// now an enqueue → poll flow backed by test_3d_jobs + an Inngest worker.
+//
+// The harness submits a file → enqueueTest3D creates a job row and fires
+// `test3d/extract.requested` → Inngest runs the extractor without a
+// connection timeout → harness polls getTest3DStatus every 2s until the
+// row says status='done' or 'error'.
 
 import { createClient } from "@/lib/supabase/server";
-import { extractSpatialLayout } from "@/lib/build/spatial/extractor";
-import {
-  extractFullHouse,
-  type DecomposerDiagnostic,
-} from "@/lib/build/spatial/full-house-extractor";
-import { convertViaCloudConvert } from "@/lib/plans/dwg-converter";
-import { extractSpatialLayoutFromDxf } from "@/lib/plans/dxf-extractor";
-import {
-  detectPlanKind,
-  cloudConvertInputFormat,
-  requiresPdfConversion,
-  type PlanFileKind,
-} from "@/lib/plans/file-kind";
-import type { SpatialLayout } from "@/lib/build/spatial/types";
-import type { PageTypeClassification } from "@/lib/build/spatial/page-classifier";
+import { db } from "@/lib/supabase/db";
+import { inngest } from "@/lib/inngest/client";
+import type { Test3DResult } from "@/lib/build/test-3d-runner";
 
-export type Test3DResult = {
-  layout: SpatialLayout | null;
-  detectedPage?: number;
-  totalPagesInspected?: number;
-  pageUsed?: number;
-  pdfPageCount?: number;
-  kind?: PlanFileKind;
-  convertedFrom?: PlanFileKind;
-  error?: string;
-  /** v2-v4 — page-type classifications across the whole PDF. */
-  classifications?: PageTypeClassification[];
-  /** v2-v4 — number of elevation pages that contributed roof/cladding data. */
-  elevationsExtracted?: number;
-  /** v2-v4 — section page used for storey heights (if any). */
-  sectionPage?: number;
-  /** v2-v4 — schedule page used for materials (if any). */
-  schedulePage?: number;
-  /** Tier 2 sheet decomposer state — surfaced so the harness can show
-   * whether the fallback fired and what it found. */
-  decomposer?: DecomposerDiagnostic;
-  /** When the layout was extracted directly from DXF (DWG path),
-   * 'dxf-direct'. Otherwise undefined (AI-vision path via PDF). */
-  extractedVia?: "dxf-direct" | "ai-vision";
-};
+export type { Test3DResult };
 
-export async function extractTest3D(input: {
+export type EnqueueTest3DInput = {
   storagePath: string;
   fileName: string;
   pageInput?: string;
-}): Promise<Test3DResult> {
+};
+
+export type EnqueueTest3DResult =
+  | { jobId: string }
+  | { error: string };
+
+export async function enqueueTest3D(
+  input: EnqueueTest3DInput,
+): Promise<EnqueueTest3DResult> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { layout: null, error: "Unauthorised" };
+  if (!user) return { error: "Unauthorised" };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("org_id")
+    .eq("user_id", user.id)
+    .single();
+
+  if (!profile?.org_id) return { error: "Profile / org not found" };
 
   const { storagePath, fileName, pageInput } = input;
-  const kind = detectPlanKind(fileName, null);
-  if (!kind) {
-    return { layout: null, error: `Unsupported file type: ${fileName}` };
+
+  // db() returns the admin client cast to any so it can address tables
+  // that aren't in the generated Supabase types yet (test_3d_jobs is a
+  // brand-new table — re-running supabase gen types would obviate this).
+  // We've already verified the user above via getUser() and write the
+  // canonical user_id below, so RLS is enforced by our own auth check
+  // rather than by the table policy.
+  const { data: job, error: insertError } = await db()
+    .from("test_3d_jobs")
+    .insert({
+      user_id: user.id,
+      org_id: profile.org_id,
+      storage_path: storagePath,
+      file_name: fileName,
+      page_input: pageInput ?? null,
+      status: "queued",
+    })
+    .select("id")
+    .single();
+
+  if (insertError || !job) {
+    return { error: `Failed to enqueue job: ${insertError?.message ?? "unknown"}` };
   }
 
-  const { data: fileBlob, error: dlError } = await supabase.storage
-    .from("plan-uploads")
-    .download(storagePath);
+  await inngest.send({
+    name: "test3d/extract.requested",
+    data: {
+      jobId: job.id,
+      storagePath,
+      fileName,
+      pageInput,
+    },
+  });
 
-  if (dlError || !fileBlob) {
-    return {
-      layout: null,
-      kind,
-      error: `Storage download failed: ${dlError?.message ?? "unknown"}`,
-    };
+  return { jobId: job.id };
+}
+
+export type Test3DStatus =
+  | { status: "queued" }
+  | { status: "processing" }
+  | { status: "done"; result: Test3DResult }
+  | { status: "error"; error: string }
+  | { status: "not_found" }
+  | { status: "unauthorised" };
+
+export async function getTest3DStatus(jobId: string): Promise<Test3DStatus> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { status: "unauthorised" };
+
+  const { data, error } = await db()
+    .from("test_3d_jobs")
+    .select("status, result, error, user_id")
+    .eq("id", jobId)
+    .maybeSingle();
+
+  if (error || !data) return { status: "not_found" };
+  const row = data as {
+    status: string;
+    result: Test3DResult | null;
+    error: string | null;
+    user_id: string;
+  };
+  if (row.user_id !== user.id) return { status: "unauthorised" };
+
+  if (row.status === "done" && row.result) {
+    return { status: "done", result: row.result };
   }
-
-  const sourceBuffer = Buffer.from(await fileBlob.arrayBuffer());
-
-  try {
-    let pdfBuffer: Buffer | null = null;
-    let convertedFrom: PlanFileKind | undefined;
-    let directImage: {
-      base64: string;
-      mediaType: "image/png" | "image/jpeg";
-    } | null = null;
-
-    if (kind === "pdf") {
-      pdfBuffer = sourceBuffer;
-    } else if (kind === "image") {
-      const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
-      if (ext === "webp") {
-        return {
-          layout: null,
-          kind,
-          error:
-            "WebP not supported by the current extractor (media-type mismatch). Convert to PNG or JPG and re-upload.",
-        };
-      }
-      const mediaType: "image/png" | "image/jpeg" =
-        ext === "png" ? "image/png" : "image/jpeg";
-      directImage = {
-        base64: sourceBuffer.toString("base64"),
-        mediaType,
-      };
-    } else if (requiresPdfConversion(kind) || kind === "dwg") {
-      // DWG path: try DXF-direct extraction FIRST (geometry from CAD entities,
-      // no AI vision, no rasterisation). DWGs with proper wall layers come
-      // back here. Only fall through to PDF + AI vision if the DXF path
-      // returns no viable layout (e.g. wall layers aren't recognised, or the
-      // DXF has no model-space entities).
-      if (kind === "dwg") {
-        const dxfConv = await convertViaCloudConvert(
-          sourceBuffer,
-          fileName,
-          "dwg",
-          "dxf",
-        );
-        if (!("error" in dxfConv)) {
-          const dxfLayout = extractSpatialLayoutFromDxf(dxfConv.buffer);
-          if (dxfLayout) {
-            // Default gable roof so the 3D viewer has something to render.
-            // Wall height stays at the DXF extractor default (2.4m).
-            if (!dxfLayout.roof) {
-              dxfLayout.roof = {
-                form: "gable",
-                pitch_deg: 22.5,
-                eave_overhang_m: 0.5,
-              };
-            }
-            return {
-              layout: dxfLayout,
-              kind,
-              convertedFrom: "dwg",
-              extractedVia: "dxf-direct",
-            };
-          }
-          console.log(
-            "[test-3d] DXF extraction returned null — falling through to PDF + AI vision",
-          );
-        } else {
-          console.log(
-            "[test-3d] CloudConvert DWG → DXF failed, falling through to PDF: ",
-            dxfConv.error,
-          );
-        }
-      }
-
-      const inputFormat =
-        kind === "dwg" ? "dwg" : cloudConvertInputFormat(kind, fileName);
-      if (!inputFormat) {
-        return {
-          layout: null,
-          kind,
-          error: `No CloudConvert input format for kind: ${kind}`,
-        };
-      }
-      const conv = await convertViaCloudConvert(
-        sourceBuffer,
-        fileName,
-        inputFormat,
-        "pdf",
-      );
-      if ("error" in conv) {
-        return {
-          layout: null,
-          kind,
-          error: `CloudConvert ${kind} → PDF failed: ${conv.error}`,
-        };
-      }
-      pdfBuffer = conv.buffer;
-      convertedFrom = kind;
-    } else {
-      return {
-        layout: null,
-        kind,
-        error: `Unsupported kind in harness: ${kind}`,
-      };
-    }
-
-    if (pdfBuffer) {
-      // Full-house orchestrator path — classifies all pages, fans out to
-      // floor plan + elevations + section + schedule extractors in parallel,
-      // merges into one SpatialLayout with roof + materials + storey data.
-      const requestedPage =
-        pageInput && pageInput.trim() !== ""
-          ? Number(pageInput.trim())
-          : undefined;
-
-      const pdfBase64 = pdfBuffer.toString("base64");
-      const result = await extractFullHouse(pdfBase64, {
-        floorPlanPageOverride: requestedPage,
-      });
-
-      if (result.error || !result.layout) {
-        return {
-          layout: null,
-          kind,
-          convertedFrom,
-          detectedPage: result.floorPlanPage ?? undefined,
-          pdfPageCount: result.totalPages ?? undefined,
-          classifications: result.classifications,
-          decomposer: result.decomposer,
-          error: result.error ?? "PDF extraction returned no layout",
-        };
-      }
-
-      return {
-        layout: result.layout,
-        detectedPage:
-          requestedPage == null ? (result.floorPlanPage ?? undefined) : undefined,
-        pageUsed: requestedPage ?? (result.floorPlanPage ?? undefined),
-        pdfPageCount: result.totalPages ?? undefined,
-        kind,
-        convertedFrom,
-        classifications: result.classifications,
-        elevationsExtracted: result.elevationsExtracted.length,
-        sectionPage: result.sectionExtracted?.pageNumber,
-        schedulePage: result.scheduleExtracted?.pageNumber,
-        decomposer: result.decomposer,
-      };
-    }
-
-    if (directImage) {
-      const layout = await extractSpatialLayout(
-        directImage.base64,
-        directImage.mediaType,
-      );
-      return { layout, kind };
-    }
-
-    return { layout: null, kind, error: "Unreachable code path" };
-  } catch (err) {
-    console.error("[test-3d] extract failed:", err);
-    return {
-      layout: null,
-      kind,
-      error: err instanceof Error ? err.message : "Unknown error",
-    };
+  if (row.status === "error") {
+    return { status: "error", error: row.error ?? "Unknown error" };
   }
+  if (row.status === "processing") return { status: "processing" };
+  return { status: "queued" };
 }
