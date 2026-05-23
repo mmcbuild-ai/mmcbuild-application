@@ -1,0 +1,82 @@
+{
+  "name": "MMC Direct — Public instant-estimate + voice concierge (Phase 1)",
+  "description": "Public no-auth /estimate flow: voice/text discovery -> deterministic indicative estimate from MMC's own rate table -> signup-gated PDF download / formal-quote request. SCRUM-220.",
+  "introduced_at": "2026-05-23",
+  "env_vars": [
+    {
+      "name": "ELEVENLABS_API_KEY",
+      "required": true,
+      "description": "BYOK ElevenLabs key for the voice discovery concierge (@caistech/elevenlabs-convai). Feature degrades to text-only search if absent.",
+      "scope": "server",
+      "where": "vercel + .env.local"
+    },
+    {
+      "name": "NODE_AUTH_TOKEN",
+      "required": true,
+      "description": "GitHub PAT (read:packages) to install @caistech/elevenlabs-convai from GitHub Packages. Repo .npmrc references ${NODE_AUTH_TOKEN} — the Vercel env var and local shell var MUST use this exact name, not GITHUB_PACKAGES_TOKEN.",
+      "scope": "build",
+      "where": "vercel (all envs) + local shell / ~/.npmrc"
+    },
+    {
+      "name": "PLATFORM_TRUST_SUPABASE_URL",
+      "required": true,
+      "description": "trustGate rate-limit backend (already used elsewhere in repo). Confirm present on Vercel.",
+      "scope": "server",
+      "where": "vercel + .env.local"
+    },
+    {
+      "name": "PLATFORM_TRUST_SERVICE_KEY",
+      "required": true,
+      "description": "Service key for the platform-trust backend (rate limiting / metering / audit on the public estimate endpoint).",
+      "scope": "server",
+      "where": "vercel + .env.local"
+    },
+    {
+      "name": "PLATFORM_TRUST_PROJECT_ID",
+      "required": true,
+      "description": "Project id for platform-trust scoping.",
+      "scope": "server",
+      "where": "vercel + .env.local"
+    },
+    {
+      "name": "ANTHROPIC_API_KEY",
+      "required": true,
+      "description": "Used by callModel() for the cheap query-parse step (freeform -> structured intent). Already present.",
+      "scope": "server",
+      "where": "vercel + .env.local"
+    },
+    {
+      "name": "TURNSTILE_SECRET",
+      "required": false,
+      "description": "DEFERRED. Cloudflare Turnstile bot challenge — only needed if scripted abuse appears (per-request cost is trivial via deterministic estimate + trustGate).",
+      "scope": "server",
+      "where": "vercel + .env.local"
+    }
+  ],
+  "external_setup": [
+    {
+      "id": "install-convai-package",
+      "type": "package",
+      "title": "Install @caistech/elevenlabs-convai",
+      "description": "Voice concierge primitive. Requires GITHUB_PACKAGES_TOKEN with read:packages and the @caistech registry line in .npmrc.",
+      "url": "https://github.com/orgs/caistech/packages",
+      "steps": [
+        "Repo .npmrc already has: @caistech:registry=https://npm.pkg.github.com + //npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}",
+        "Set NODE_AUTH_TOKEN (read:packages PAT) in the shell env AND in Vercel (all environments)",
+        "pnpm add @caistech/elevenlabs-convai --legacy-peer-deps"
+      ]
+    },
+    {
+      "id": "provision-elevenlabs-agent",
+      "type": "vendor-api",
+      "title": "Provision the ElevenLabs ConvAI discovery agent via API",
+      "description": "Create the discovery concierge agent programmatically (never via dashboard) per the portfolio provision-via-API rule. Persona + opening line per voice-config.",
+      "url": "https://elevenlabs.io/app/conversational-ai",
+      "steps": [
+        "Set ELEVENLABS_API_KEY",
+        "Run the setup-product-credentials script step that calls the ConvAI create-agent API",
+        "Store the returned agent_id in env / config for the concierge surface"
+      ]
+    }
+  ]
+}

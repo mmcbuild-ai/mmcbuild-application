@@ -33,7 +33,7 @@ export const lookupCostRateDef = {
   },
 };
 
-interface RateResult {
+export interface RateResult {
   element: string;
   unit: string;
   base_rate: number;
@@ -241,4 +241,41 @@ export async function executeLookupCostRate(
     : "";
 
   return `Reference rates for "${input.category}":\n${lines.join("\n")}\n\nIMPORTANT: For each line item that uses a reference rate, set rate_source_name to the source_name shown above. If you estimate a rate yourself, set rate_source_name to "AI Estimated".${overrideNote}`;
+}
+
+/**
+ * Structured variant of the rate lookup — returns merged `RateResult[]` instead
+ * of the formatted agent string. Org overrides take priority over global rates
+ * (by element); falls back to NSW base rates when a non-NSW state has no match.
+ *
+ * Used by the MMC Direct instant-estimate primitive. `executeLookupCostRate`
+ * above is intentionally left untouched (it is on the live MMC Quote path).
+ */
+export async function lookupRatesStructured(
+  input: { category: string; element?: string; state?: string },
+  orgId?: string
+): Promise<RateResult[]> {
+  const state = input.state ?? "NSW";
+
+  const orgRates = orgId
+    ? await queryOrgOverrides(orgId, input.category, state, input.element)
+    : [];
+  const globalRates = await queryGlobalRates(input.category, state, input.element);
+
+  const overrideElements = new Set(orgRates.map((r) => r.element));
+  const merged = [
+    ...orgRates,
+    ...globalRates.filter((r) => !overrideElements.has(r.element)),
+  ];
+
+  if (merged.length === 0 && state !== "NSW") {
+    const nswOrg = orgId
+      ? await queryOrgOverrides(orgId, input.category, "NSW", input.element)
+      : [];
+    const nswGlobal = await queryGlobalRates(input.category, "NSW", input.element);
+    const nswOverrides = new Set(nswOrg.map((r) => r.element));
+    return [...nswOrg, ...nswGlobal.filter((r) => !nswOverrides.has(r.element))];
+  }
+
+  return merged;
 }

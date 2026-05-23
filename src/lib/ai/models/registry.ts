@@ -26,7 +26,8 @@ export type AIFunction =
   | "training_content"
   | "plan_vision"
   | "cert_metadata"
-  | "assistant";
+  | "assistant"
+  | "marketplace_parse";
 
 export type QualityTier = "standard" | "high" | "premium";
 
