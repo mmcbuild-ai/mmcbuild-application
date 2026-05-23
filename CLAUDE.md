@@ -20,6 +20,22 @@ To check your Jira tasks, you'll need to access Jira directly. If you'd like, I 
 - When you make significant decisions, emit: <!-- MEMORY type=decision importance=8 | description -->
 - When you create files, emit: <!-- MEMORY type=file_created importance=6 | path/to/file.ts - description -->
 <!-- END SESSION CONTEXT -->
+
+## ⚠️ REPO CHECK — RUN AT SESSION START (NON-NEGOTIABLE)
+
+Before doing ANY work in this repo, alert the user to confirm they are in the
+correct repo:
+
+> "Repo check: you're in **mmcbuild-prod** (GitHub `dennissolver/mmc-market`) —
+> the canonical repo Vercel deploys from. Confirm this is where you want to work
+> before I make changes."
+
+There are two local clones of this project: `mmcbuild` (legacy) and
+`mmcbuild-prod` (canonical = the `mmc-market` repo Vercel deploys). On
+2026-05-23 a full session was done in the legacy `mmcbuild` by mistake and had
+to be copied across. Surface the repo identity at the top of every session and
+get confirmation before editing or committing. **This repo is the right one.**
+
 # MMC Build — Project Instructions
 
 > **Global guardrails apply.** Session behaviour, workflow contract, stop phrase
