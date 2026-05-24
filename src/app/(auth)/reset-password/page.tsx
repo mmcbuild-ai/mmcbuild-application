@@ -4,10 +4,9 @@ import { Suspense, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Eye, EyeOff } from "lucide-react";
 import { resetPassword } from "../actions";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import {
   Card,
@@ -22,8 +21,6 @@ function ResetPasswordForm() {
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
   const [isLoading, setIsLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
 
   async function handleSubmit(formData: FormData) {
     setIsLoading(true);
@@ -62,58 +59,26 @@ function ResetPasswordForm() {
         <form action={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="password">New password</Label>
-            <div className="relative">
-              <Input
-                id="password"
-                name="password"
-                type={showPassword ? "text" : "password"}
-                minLength={8}
-                className="h-11 pr-11"
-                required
-                autoComplete="new-password"
-              />
-              <button
-                type="button"
-                tabIndex={-1}
-                onClick={() => setShowPassword((v) => !v)}
-                aria-label={showPassword ? "Hide password" : "Show password"}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                {showPassword ? (
-                  <EyeOff className="h-5 w-5" />
-                ) : (
-                  <Eye className="h-5 w-5" />
-                )}
-              </button>
-            </div>
+            <PasswordInput
+              id="password"
+              name="password"
+              minLength={8}
+              className="h-11"
+              required
+              autoComplete="new-password"
+            />
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="confirm_password">Confirm new password</Label>
-            <div className="relative">
-              <Input
-                id="confirm_password"
-                name="confirm_password"
-                type={showConfirm ? "text" : "password"}
-                minLength={8}
-                className="h-11 pr-11"
-                required
-                autoComplete="new-password"
-              />
-              <button
-                type="button"
-                tabIndex={-1}
-                onClick={() => setShowConfirm((v) => !v)}
-                aria-label={showConfirm ? "Hide password" : "Show password"}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                {showConfirm ? (
-                  <EyeOff className="h-5 w-5" />
-                ) : (
-                  <Eye className="h-5 w-5" />
-                )}
-              </button>
-            </div>
+            <PasswordInput
+              id="confirm_password"
+              name="confirm_password"
+              minLength={8}
+              className="h-11"
+              required
+              autoComplete="new-password"
+            />
           </div>
 
           <Button type="submit" className="w-full h-11" disabled={isLoading}>
