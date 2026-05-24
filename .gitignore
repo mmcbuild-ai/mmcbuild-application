@@ -71,3 +71,9 @@ scripts/.*
 # Diagnostic/recon working dir — converted PDFs, rendered PNGs, bbox JSONs.
 # Useful locally but never commit (large + per-developer).
 tmp/
+
+# ─── Supabase migration dumps (PII — never commit) ───
+# Schema/data/role dumps pulled for the CAS → MMC Build migration. The data
+# dump contains real customer PII + storage object paths. Local-only; delete
+# after the restore is verified (same discipline as .env.restore.local).
+supabase/dump-*.sql
