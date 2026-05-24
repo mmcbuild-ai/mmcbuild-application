@@ -9,12 +9,14 @@
 
 ## At a glance
 
-Two new GitHub repos have been pushed to Dennis's personal account for you to take over:
+Two new GitHub repos have been pushed to my `github.com/dennissolver` account for you to take over:
 
 1. **`dennissolver/mmc-shared`** — a trimmed shared-services monorepo containing the three internal packages the MMC Build app actually uses (mapbox, platform-trust-middleware, property-services-sdk), renamed from `@caistech/*` to `@mmcbuild/*`.
-2. **`dennissolver/mmc-market`** — the MMC Build web application itself, with full git history. Today it still consumes the `@caistech/*` packages from Dennis's GitHub Packages registry (unchanged from current production). After this handover, it will consume `@mmcbuild/*` from MMC Build's own registry.
+2. **`dennissolver/mmc-market`** — the MMC Build web application itself, with full git history. Today it still consumes the `@caistech/*` packages from my GitHub Packages registry (unchanged from current production). After this handover, it will consume `@mmcbuild/*` from MMC Build's own registry.
 
-Your job is to (a) take ownership of both repos under the MMC Build GitHub org, (b) publish the three `@mmcbuild/*` packages to MMC Build's GitHub Packages registry, and (c) swap `mmc-market` from `@caistech/*` to `@mmcbuild/*`. The Vercel deploy keeps running throughout — there is no downtime in this handover.
+**Guidance**
+
+To (a) take ownership of both repos under the MMC Build GitHub org, (b) publish the three `@mmcbuild/*` packages to MMC Build's GitHub Packages registry, and (c) swap `mmc-market` from `@caistech/*` to `@mmcbuild/*`. The Vercel deploy keeps running throughout — there is no downtime in this handover.
 
 ---
 
@@ -52,7 +54,7 @@ Supabase, DNS, and Base44 are **out of scope today** — see "Not in scope" at t
 Tick each box before running any of the steps below.
 
 - [ ] You can access the MMC Build GitHub org and have admin permission to create repos and packages there
-- [ ] You can access the Vercel project at `vercel.com/mmc-build/mmcbuild` with permission to change environment variables and trigger redeploys
+- [ ] You can access the Vercel project at `vercel.com/mmc-build/mmcbuild` (or relevant URL) with permission to change environment variables and trigger redeploys
 - [ ] You have `git`, `node` (v20+), `pnpm` (v10+), and the GitHub CLI (`gh`) installed locally
 - [ ] You have read this entire document once before starting
 
@@ -60,17 +62,24 @@ Tick each box before running any of the steps below.
 
 ## Step 1 — Take ownership of the two repos (5 min)
 
-### 1.1 — Tell Dennis the MMC Build GitHub org slug
+### 1.1 — Tell me the MMC Build GitHub org slug
 
-Dennis needs the exact case-sensitive org slug (e.g. `mmc-build`, `mmcbuildau`) to run the transfer command. Send it via Slack/WhatsApp.
+I need the exact case-sensitive org slug (e.g. `mmc-build`, `mmcbuildau`) to run the transfer command. Send it via Slack/WhatsApp.
 
-### 1.2 — Dennis runs the transfer from his machine
+### 1.2 — I run the transfer from my machine
 
-For each repo, Dennis runs:
+For each repo, I run:
 
 ```bash
 gh repo transfer dennissolver/mmc-shared <YOUR_ORG_SLUG>
+# assuming <YOUR_ORG_SLUG> = mmc-shared:
+#   gh repo transfer dennissolver/mmc-shared mmc-shared
+# but please confirm the actual slug
+
 gh repo transfer dennissolver/mmc-market <YOUR_ORG_SLUG>
+# assuming <YOUR_ORG_SLUG> = mmc-market:
+#   gh repo transfer dennissolver/mmc-market mmc-market
+# but please confirm the actual slug
 ```
 
 Each command returns a URL.
@@ -79,9 +88,9 @@ Each command returns a URL.
 
 Open each URL in your browser, click **Accept transfer**. The repos now live at `<YOUR_ORG_SLUG>/mmc-shared` and `<YOUR_ORG_SLUG>/mmc-market`.
 
-### 1.4 — Invite Dennis back as a collaborator
+### 1.4 — Invite me back as a collaborator
 
-For each repo: **Settings → Collaborators → Add people → `dennissolver` → write access**. Without this, Dennis can't push fixes if anything goes wrong in later steps.
+For each repo: **Settings → Collaborators → Add people → `dennissolver` → write access**. Without this, I can't push fixes if anything goes wrong in later steps.
 
 ### Verify step 1 worked
 
@@ -111,13 +120,74 @@ https://github.com/settings/tokens/new?scopes=repo,read:packages,write:packages&
 
 ### 3.1 — Configure npm to use your PAT for publishing
 
-Edit (or create) `~/.npmrc` in your home directory. **This is your personal config, not a repo file.**
+You need to add one line to a file called `.npmrc` in your **user home directory**. This is your personal config — it lives outside any repo and is used by `npm` for all your projects.
 
-```ini
-//npm.pkg.github.com/:_authToken=PASTE_YOUR_PAT_HERE
+**The `.` (dot) prefix means the file is "hidden" on most systems — you may need to enable showing hidden files in your file explorer, or just create it from the command line.**
+
+#### On Windows
+
+Your home directory is `C:\Users\<your-windows-username>\`. For example: `C:\Users\karthik\`.
+
+**Option A — PowerShell (easiest):**
+
+Open PowerShell. Run:
+
+```powershell
+# Replace PASTE_YOUR_PAT_HERE with the actual ghp_... value from step 2
+Add-Content -Path "$HOME\.npmrc" -Value "//npm.pkg.github.com/:_authToken=PASTE_YOUR_PAT_HERE"
 ```
 
-Save and close.
+Verify the file was written:
+
+```powershell
+Get-Content "$HOME\.npmrc"
+```
+
+You should see your line at the bottom (and any other lines that were already there).
+
+**Option B — Notepad:**
+
+1. Press `Win + R`, type `%USERPROFILE%`, hit Enter — this opens your home folder.
+2. Look for `.npmrc`. If it's not there, you'll create it.
+3. Right-click in the folder → New → Text Document. Name it `.npmrc` (Windows will warn about changing the extension — click Yes).
+4. Open it in Notepad. Add this line at the end:
+   ```
+   //npm.pkg.github.com/:_authToken=PASTE_YOUR_PAT_HERE
+   ```
+5. Save and close.
+
+If Windows refuses to let you create a file starting with a dot, you can rename `npmrc.txt` to `.npmrc` from PowerShell:
+
+```powershell
+Rename-Item "$HOME\npmrc.txt" "$HOME\.npmrc"
+```
+
+#### On macOS / Linux
+
+Your home directory is `~` (which expands to `/Users/<username>/` on macOS or `/home/<username>/` on Linux).
+
+```bash
+# Replace PASTE_YOUR_PAT_HERE with the actual ghp_... value from step 2
+echo "//npm.pkg.github.com/:_authToken=PASTE_YOUR_PAT_HERE" >> ~/.npmrc
+```
+
+Verify:
+
+```bash
+cat ~/.npmrc
+```
+
+#### Verify your PAT actually works against GitHub Packages
+
+Before moving on, confirm the token is configured correctly:
+
+```bash
+npm whoami --registry=https://npm.pkg.github.com
+```
+
+This should print your GitHub username (e.g. `karthik`). If it prints an error about authentication, your PAT line isn't being read — double-check the file path and that the line is exactly as shown (no extra spaces, no missing slashes).
+
+**Important — do NOT commit this file to any repo.** It contains your personal auth token. The repo-level `.npmrc` (the one inside `mmc-market`) only references `${GITHUB_PACKAGES_TOKEN}` as a variable — that's safe to commit because it doesn't contain the actual token.
 
 ### 3.2 — Clone, install, build
 
@@ -276,7 +346,7 @@ Watch the build log. The `pnpm install` step should now successfully fetch the t
 |---|---|---|
 | `403 Forbidden` during install | Vercel can't authenticate to your registry | Confirm `GITHUB_PACKAGES_TOKEN` is on the right env, redeploy |
 | `404 Not Found` for `@mmcbuild/<x>` | Package not published, or wrong version range | Check the Packages tab on the MMC Build org; confirm versions match `package.json` |
-| Build succeeds but runtime errors | Something inside the @mmcbuild package version is different from @caistech | Ping Dennis with the error — likely a version mismatch in the publish step |
+| Build succeeds but runtime errors | Something inside the @mmcbuild package version is different from @caistech | Ping me with the error — likely a version mismatch in the publish step |
 
 ---
 
@@ -285,13 +355,13 @@ Watch the build log. The `pnpm install` step should now successfully fetch the t
 You are finished when **all** of these are true:
 
 - [ ] `<YOUR_ORG_SLUG>/mmc-shared` and `<YOUR_ORG_SLUG>/mmc-market` exist on the MMC Build org
-- [ ] Dennis has been re-added as a collaborator on both
+- [ ] I have been re-added as a collaborator on both
 - [ ] Three packages visible at MMC Build org → Packages: `mapbox`, `platform-trust-middleware`, `property-services-sdk`
 - [ ] `<YOUR_ORG_SLUG>/mmc-market` `main` branch has the `@caistech/*` → `@mmcbuild/*` migration commit on it
 - [ ] Vercel project for `mmcbuild` is connected to `<YOUR_ORG_SLUG>/mmc-market`
 - [ ] `GITHUB_PACKAGES_TOKEN` is set on Vercel env (Production, Preview, Development)
 - [ ] Latest Vercel deployment is green and the live URL responds 200
-- [ ] You and Dennis have confirmed the smoke test (sign in, load dashboard) works as before
+- [ ] You and I have confirmed the smoke test (sign in, load dashboard) works as before
 
 ---
 
@@ -299,15 +369,15 @@ You are finished when **all** of these are true:
 
 These are scheduled for later sessions and **deliberately not part of this handover**:
 
-- **Supabase data migration.** The app still talks to Dennis's CAS-owned Supabase project (`skyeqimwnyuuozvhubdc`). Karen's 16 users, 14 orgs, 10 projects, 13 design checks, and 2 KB collections are preserved on that project. Migration to MMC Build's Supabase (`lztzyfeivpsbqbsfzctw`) is planned for Mon–Wed next week as a 1-hour maintenance window — pg_dump + psql restore + storage bucket copy + env-var swap on Vercel.
+- **Supabase data migration.** The app still talks to my CAS-owned Supabase project (`skyeqimwnyuuozvhubdc`). Karen's 16 users, 14 orgs, 10 projects, 13 design checks, and 2 KB collections are preserved on that project. Migration to MMC Build's Supabase (`lztzyfeivpsbqbsfzctw`) is planned for Mon–Wed next week as a 1-hour maintenance window — pg_dump + psql restore + storage bucket copy + env-var swap on Vercel.
 - **DNS cutover at VentraIP.** `mmcbuild.com.au` still resolves to Base44. The cutover to Vercel happens after Karen finishes her weekend testing on `mmcbuild-one.vercel.app` and signs off on visual parity.
 - **Base44 subscription cancellation.** Happens after DNS cutover.
 
 ---
 
-## When to ping Dennis
+## When to ping me
 
-Direct him at any blocker that isn't covered by the troubleshooting tables above. Most likely friction points:
+Direct me to any blocker that isn't covered by the troubleshooting tables above. Most likely friction points:
 
 - GitHub org settings around package visibility — these tend to need an admin click in the UI
 - pnpm version mismatch — the repo uses pnpm v10.26.2 (locked via `packageManager` field)
@@ -315,8 +385,8 @@ Direct him at any blocker that isn't covered by the troubleshooting tables above
 
 Workflow when something goes wrong:
 
-1. You hit an error → screenshot or paste the exact text to Dennis
-2. Dennis fixes locally in his `mmcbuild-shared` clone, pushes to `<YOUR_ORG>/mmc-shared`
+1. You hit an error → screenshot or paste the exact text to me
+2. I fix locally in my `mmcbuild-shared` clone and push to `<YOUR_ORG>/mmc-shared`
 3. You `git pull` your clone and re-run the failed step
 
 No bottlenecks if both of you are around.
