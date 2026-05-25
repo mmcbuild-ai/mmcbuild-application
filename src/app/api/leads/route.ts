@@ -6,6 +6,53 @@ import { notifyKarenOfNewLead } from "@/lib/email/leads";
 
 export const runtime = "nodejs";
 
+// CORS — the marketing site (mmcbuild.com.au) is a separate origin (mmcbuild-marketing
+// repo) and POSTs leads here cross-origin. Allow the brochure origins only.
+const ALLOWED_ORIGINS = new Set([
+  "https://mmcbuild.com.au",
+  "https://www.mmcbuild.com.au",
+  "http://localhost:3000",
+]);
+
+function isAllowedOrigin(origin: string | null): origin is string {
+  if (!origin) return false;
+  if (ALLOWED_ORIGINS.has(origin)) return true;
+  try {
+    // marketing Vercel preview deploys
+    return new URL(origin).hostname.endsWith(".vercel.app");
+  } catch {
+    return false;
+  }
+}
+
+function corsHeaders(origin: string | null): Record<string, string> {
+  if (!isAllowedOrigin(origin)) return {};
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    Vary: "Origin",
+  };
+}
+
+function withCors(res: NextResponse, origin: string | null): NextResponse {
+  for (const [key, value] of Object.entries(corsHeaders(origin))) {
+    res.headers.set(key, value);
+  }
+  return res;
+}
+
+export async function OPTIONS(request: Request) {
+  return new NextResponse(null, {
+    status: 204,
+    headers: corsHeaders(request.headers.get("origin")),
+  });
+}
+
+export async function POST(request: Request) {
+  return withCors(await handleLead(request), request.headers.get("origin"));
+}
+
 type LeadRow = {
   form_type: LeadInput["formType"];
   first_name: string;
@@ -36,7 +83,7 @@ function toRow(lead: LeadInput): LeadRow {
   };
 }
 
-export async function POST(request: Request) {
+async function handleLead(request: Request): Promise<NextResponse> {
   let payload: unknown;
   try {
     payload = await request.json();

@@ -121,13 +121,18 @@ Checked against the working tree, not assumed:
 
 ### Phase 3 — Decouple the brochure from Supabase
 - [ ] **Landing page** (`page.tsx`): remove `createClient` + session check + `redirect`; session-aware nav becomes a **static link** to `app.mmcbuild.com.au`. This is the only hard coupling.
-- [ ] **Lead forms** (contact / waitlist / trades-supplier): duplicate the `LeadInput` type locally; re-point submit to the chosen target (§8 item 1) — recommended HubSpot-direct over a CORS POST to the app's `/api/leads`.
+- [x] **Lead forms** (contact / waitlist / trades-supplier) — **DONE.** Repointed to `${NEXT_PUBLIC_APP_URL}/api/leads` (fallback `https://app.mmcbuild.com.au`); **CORS added to `/api/leads` in `mmcbuild-application`** (preflight + allow-list: `mmcbuild.com.au`, `www`, `*.vercel.app`, localhost). Chose the CORS-to-app route over HubSpot-direct — preserves current behaviour (Supabase + HubSpot + Karen alert), no new infra.
 - [ ] Remove the `(marketing)` group from `mmc-application` only after `mmc-marketing` is deployed + verified and internal links are repointed.
 
 ### Phase 4 — Deploy + DNS + auth redirect
-- [ ] New Vercel project: `mmc-marketing` → `mmcbuild.com.au` (apex + `www`).
-- [ ] Existing Vercel project: `mmc-application` → `app.mmcbuild.com.au` (re-domained from `mmcbuild-one.vercel.app`).
-- [ ] **Supabase Auth URL config** (Management API / `onboard-new-project.sh`, **not** by asking for a token): Site URL `https://app.mmcbuild.com.au`; add the app subdomain + `*.vercel.app` to the redirect allowlist; keep `auth/callback` allowlisted.
+
+> **Ownership** (per the handover-addendum division of labour: *"Dennis pushes application code; Karthik holds infra/deploy config"*):
+> **Vercel + DNS = Karthik / Karen (MMC infra side).** **Supabase Auth URL = Dennis (self-serve via the Management API token)** — coupled to the Vercel domain (the redirect allow-list must match whatever domain Vercel serves the app on), so it runs in the **same window**, but it is *not* a manual Vercel/dashboard task.
+
+- [ ] **[Karthik / Karen]** New Vercel project for **`mmcbuild-marketing`** → `mmcbuild.com.au` (apex + `www`). Set `NEXT_PUBLIC_APP_URL=https://app.mmcbuild.com.au` on it (the brochure's `/login`, `/signup`, and lead-form POSTs read this).
+- [ ] **[Karthik / Karen]** Re-point the **existing** Vercel project from `mmc-market` to **`mmcbuild-application`**, and re-domain `mmcbuild-one.vercel.app` → `app.mmcbuild.com.au`.
+- [ ] **[Karen]** DNS at VentraIP: `mmcbuild.com.au` (+ `www`) → the marketing project; `app.mmcbuild.com.au` → the application project.
+- [ ] **[Dennis — self-serve, same window]** Supabase Auth URL config on the **application's** Supabase (Management API / `onboard-new-project.sh`, **never ask for a token**): Site URL `https://app.mmcbuild.com.au`; add the app subdomain + `*.vercel.app` to the redirect allow-list; keep `auth/callback` allow-listed. Also confirm the `/api/leads` CORS allow-list includes the live `mmcbuild.com.au` origin (already wired).
 
 ### Phase 5 — Verify + Definition of Done
 - [ ] `mmcbuild.com.au`: brochure serves; `<title>` contains "MMC Build"; responsive 375px + 1440px; explanatory headers intact.
