@@ -38,14 +38,14 @@ export const moduleThemes = {
     badgeLabel: "MMC Quote",
   },
   direct: {
-    label: "MMC Directory",
+    label: "MMC Direct",
     icon: Users,
     accent: "text-amber-400",
     accentBg: "bg-amber-400",
     accentHover: "hover:bg-amber-500",
     heroGradient:
       "bg-gradient-to-br from-[#451A03] via-amber-700 to-amber-600",
-    badgeLabel: "MMC Directory",
+    badgeLabel: "MMC Direct",
   },
   train: {
     label: "MMC Train",

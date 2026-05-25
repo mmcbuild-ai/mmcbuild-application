@@ -122,7 +122,7 @@ export function Sidebar({ isOpen, tier, runCount, role }: SidebarProps) {
       <div className="mx-3 my-3 border-t border-white/10" />
 
       <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
-        <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+        <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">
           Modules
         </p>
         {visibleModuleNav.map((item) => {
