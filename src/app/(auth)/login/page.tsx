@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { Loader2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { signIn, signInWithMagicLink } from "../actions";
 import { Button } from "@/components/ui/button";
@@ -99,7 +100,14 @@ function LoginForm() {
                 />
               </div>
               <Button type="submit" className="w-full h-11" disabled={isLoading}>
-                {isLoading ? "Signing in..." : "Sign In"}
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Signing in...
+                  </>
+                ) : (
+                  "Sign In"
+                )}
               </Button>
             </form>
           </TabsContent>
@@ -123,7 +131,14 @@ function LoginForm() {
                 />
               </div>
               <Button type="submit" className="w-full h-11" disabled={isLoading}>
-                {isLoading ? "Sending link..." : "Send Magic Link"}
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Sending link...
+                  </>
+                ) : (
+                  "Send Magic Link"
+                )}
               </Button>
             </form>
           </TabsContent>
