@@ -12,6 +12,8 @@
 - App: dashboard never-blank fallback (`e957d5a`).
 - App: editable Profile — name + password change (`382c8a2`).
 - Lead pipeline + sender verified end-to-end; HubSpot fix is a **domain-allowlist** (Karthik, per the emailed draft), not code.
+- **QA test infra** — persistent `owner` QA account (`mcmdennis+qa@gmail.com`, password in password manager), `scripts/qa-session.mjs` (real-session cookie minter — no auth bypass), `docs/TESTING.md` (Mode A type-the-form / Mode B inject-the-cookie + daemon workaround).
+- **Canonicals re-run on the updated site — all 5 + performance landed:** `/review` ✅ clean, `/cso` ✅ clean (CORS closed), `/voice-auditor` ⚠️ partial (pre-existing DNA gap, see Voice below), `/benchmark` (see Performance below), `/naive-tester` verify ✅ — **every previously-reported landmine confirmed gone for a real provisioned user** (dashboard renders, `/beta` 200, billing 200, Profile editable; brochure favicon/headshots/hero/44px-inputs/handoff all ✅).
 
 ## ⏳ Deferred — needs a decision or a prod-DB touch
 - **Profile `phone` / `company` / `job_title` + email-change.** Requires an additive migration on the **live CAS prod DB** (`skyeqimwnyuuozvhubdc`, Karen's data) + the international phone input + the email re-verification flow. Confirm the repo is linked for `supabase db push` first (no `supabase/migrations` profiles def found — schema may be dump-only). Core §4 (name + password) is already done.
@@ -21,6 +23,13 @@
 - **Rate-limit `/api/leads` (+ `/api/abn-lookup`)** — reuse the `trustGate` IP-hash pattern already on `/api/estimate`. (cso LOW — financial amplification, not DoS.)
 - **Sanitize `/api/remediation/[token]/upload`** — basename the filename + enforce a MIME/extension allowlist (keep the 10MB cap). (cso MEDIUM.)
 - **`/beta` + Billing graceful no-profile state** — only reachable by a profile-less user (provisioning edge case the dashboard fallback already guides). Low value; tidy if convenient.
+
+## ⚡ Performance (from `/benchmark` + naive-tester env notes)
+- **Brochure: ship-quality** ✅ — TTFB ~200ms, LCP 1.3–1.9s, CLS 0, 174KB JS. Quick win: lazy-load + responsive-size the ~54 below-fold images (4.3MB cold-load; doesn't hit LCP, so not a blocker).
+- **App `/login`: slow cold paint** 🟡 — LCP ~3.9s cold / 2.1s warm, from **app-shell JS hydration** (not bundle size — 161KB). Render `/login` as a lighter route so first paint isn't gated on full-shell hydration. Real, perf-polish (not a blocker).
+- **Login submit has no loading state** 🟡 (both `/benchmark` cold-paint + Anneke flagged it) — the sign-in server action sits "pending" several seconds with no spinner; a real user clicks Sign In and sees nothing. **Quick UX win:** add a loading/disabled state + spinner to the login + magic-link submit buttons. Highest-value of the perf items (every user hits it at the gate).
+- **App `/dashboard`: unmeasured by `/benchmark`** — the benchmark daemon couldn't hold a session (DOM-injection quirk). Creds confirmed valid via password-grant + Anneke logged in manually, so this is a harness limitation, not a bug. The new `scripts/qa-session.mjs` (Mode B) fixes future authed-perf runs.
+- **Brochure: two custom dropdowns are 36px on mobile** 🟡 (country-code + Role on the contact form) — just under the 44px target; the rest of the form passes. Quick bump.
 
 ## 🎙️ Voice agent (VOICE AI standard — pre-existing gap, not a split regression; from `/voice-auditor`)
 - **App `voice_agent_status` = partial.** The voice widget is a CDN `<elevenlabs-convai>` one-off in `(dashboard)/layout.tsx`, not the `@caistech/elevenlabs-convai` hub `/react` VoiceWidget. Backfill onto the hub; move the agent id into a scaffolded `voice.config.ts` (not `NEXT_PUBLIC_ELEVENLABS_AGENT_ID`).
@@ -33,9 +42,9 @@
 - **Marketing credibility:** Tier-1 partner logos (real or reframe — legal risk if aspirational); round-number stats + unattributed testimonials; "industry-recognised certifications" accreditor; the "up to 60%" claim footnote; reconcile the hero "Join the Waitlist" vs corner "Get Started".
 
 ## 🔜 Process — next, in order (per Dennis 2026-05-25)
-1. **Re-run canonicals on the *updated* site** — including **`/voice-auditor`** (not yet run) + re-run review/cso/naive-tester against the fixed build.
-2. **Performance standards** — `/benchmark` (Core Web Vitals, load times, bundle size) on brochure + app.
-3. **Karthik migration re-plan** — only after 1 + 2 are clean.
+1. ✅ **Re-run canonicals on the *updated* site** — DONE. `/review` + `/cso` + `/voice-auditor` + `/naive-tester` verify all landed; no blockers (voice = pre-existing DNA gap, backlogged).
+2. ✅ **Performance standards** — `/benchmark` DONE. Brochure ship-quality; app `/login` cold-paint + login-spinner are perf-polish items (above), not blockers.
+3. **→ Karthik migration re-plan** — **gate now open.** 1 + 2 are clean (only deferred/backlog items remain). This is the next phase.
 
 ## 🧹 Cosmetic
 - Rename the legacy `MMCBuild` local folder → `_deprecated-mmcbuild` (the GitHub repo is already archived; the local rename is pending a file lock — do after a reboot).
