@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/lib/supabase/db";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
+import { VoiceAgent } from "@/components/voice/voice-agent";
 
 export default async function DashboardLayout({
   children,
@@ -58,6 +59,7 @@ export default async function DashboardLayout({
       orgName={orgName}
     >
       {children}
+      <VoiceAgent />
     </DashboardShell>
   );
 }

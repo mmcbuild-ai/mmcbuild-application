@@ -77,8 +77,9 @@ _Maintained by Dennis McMahon. Referenced from PROJECT_STATE.md._
 
 ## ADR-007: Repo topology — `mmc-marketing` (public web) + `mmc-application` (product + services)
 
-**Status:** Proposed — to confirm with Karthik on the 2026-05-24 call
-**Date:** 2026-05-24
+**Status:** Accepted in part (the market/application division + the one rule), **amended by ADR-008** — the repo *count* is **three**, not two: `mmc-shared` is **kept as a separate published-package repo, NOT folded in / retired**.
+**Date:** 2026-05-24 (accepted + amended 2026-05-25)
+**Execution plan:** `docs/repo-split-migration-plan.md`
 **Context:**
 - SCRUM-195 (Karthik's signed-off migration design doc) specified **two code repos: "web + app"** — public marketing site separate from the application — plus the feature→release→main branching model.
 - On **13 May** we consolidated them into a single repo (`mmc-market`, absorbing the old `mmcbuild-webapp` marketing content) to simplify the migration. The separate shared-services repo (`mmc-shared`) was added later (2026-05-15, Option B) as Dennis's preference for updating the services layer independently.
@@ -130,8 +131,36 @@ Retired:
 - **Lost capability:** services are no longer independently versioned. Acceptable for a single-consumer handover; Dennis keeps the canonical services as `@caistech/*` for the rest of the portfolio and copies relevant changes down.
 - **Deploys/DNS:** `mmcbuild.com.au` → `mmc-marketing`; `app.mmcbuild.com.au` → `mmc-application`. Supabase Auth redirect URLs updated to the app subdomain.
 - **Timing:** the env-var fix (Supabase keys + package resolution) is the go-live blocker and lands first; the repo restructure is done deliberately in the Mon–Tue window with the backend migration. The deploy failure does NOT force the restructure tonight.
-- **Naming to confirm with Karthik on the 2026-05-24 call** (web/app vs marketing/application) — but the *contents* and *the one rule* above are the substance.
+- **Confirmed with Karthik (2026-05-24 call, 2026-05-25):** three repos — `mmc-marketing` + `mmc-application` + `mmc-shared`. The market/application division (brochure vs whole-product) and the one rule **stand**. What's **amended** (ADR-008): `mmc-shared` is **kept separate**, not folded in. What was **rejected**: a UI↔backend *network boundary* — `mmc-application` stays a single fullstack app, no headless backend.
 
 ---
 
-_Next ADR number: ADR-008_
+## ADR-008: Three repos — keep `mmc-shared` as a separate published-package repo (amends ADR-007)
+
+**Status:** Accepted
+**Date:** 2026-05-25
+**Amends:** ADR-007
+**Context:**
+- ADR-007 proposed **two** repos and **retiring `mmc-shared`** (folding the services in as internal `src/lib/services/*` modules) to remove the package-publish step that caused the 2026-05-24 org-deploy failure.
+- On the 2026-05-24 call (confirmed 2026-05-25), Karthik and Dennis confirmed **three** repos: `mmc-marketing`, `mmc-application`, and `mmc-shared` **kept separate**. This restores Dennis's standing preference (handover addendum, "Option B", 2026-05-15) to **version the services layer independently** of the product.
+- A UI↔backend network boundary (headless backend) was also discussed and **rejected** — `mmc-application` stays a single fullstack Next.js app.
+
+**Decision:** Three repos.
+1. **`mmc-marketing`** — public brochure (per ADR-007, unchanged): no Supabase, no auth.
+2. **`mmc-application`** — the whole product: dashboard UI + auth + backend together (per ADR-007's division + the one rule; **no network boundary**). **Consumes `mmc-shared` as `@mmcbuild-ai/*` packages.**
+3. **`mmc-shared`** — the shared-services repo, kept separate, published to the org registry as `@mmcbuild-ai/{mapbox, platform-trust-middleware, property-services-sdk, elevenlabs-convai}`.
+
+**What this withdraws from ADR-007:** the "two repos", "retire `mmc-shared`", and "fold services in as internal modules" consequences. ADR-007's market/application division and "the one rule" remain in force.
+
+**Consequence — reconcile the vendored state (decoupled + gated).** The canonical repo today has the services **vendored** in `src/lib/services/*` with **zero** external package deps — a *deliberate* de-risking move (commit `5fca2db`, *"drop private registry"*) that escaped the very registry friction which 404'd the org deploy on 2026-05-24. For the three-repo model `mmc-shared` must be load-bearing, so `mmc-application` should **consume its published `@mmcbuild-ai/*` packages** rather than vendor them (else `mmc-shared` is a dead mirror). But re-externalizing **re-introduces that exact failure mode**, so it is **decoupled from the marketing split and gated**:
+
+- The **marketing split does not depend on re-externalizing** — it ships first, low-risk and self-contained.
+- **Re-externalization is its own later milestone** (plan §5b), gated on: (a) all 4 packages published incl. `elevenlabs-convai`; (b) scope name locked (`@mmcbuild-ai`); (c) `GITHUB_PACKAGES_TOKEN` on Vercel; (d) *publish-before-flip* proven on a **preview** deploy before production.
+- Blast radius is small — a **facade pattern** (`src/lib/platform-trust.ts`, `src/lib/property-services/index.ts`) confines the change to ~3–5 import sites; the risk lives in the registry/publish plumbing, not the code edit.
+- Until re-externalized, the vendored copies are the source of truth and **must not be hot-patched** — divergence from `mmc-shared` is the failure the `@caistech`-first rule exists to prevent.
+
+**Rationale:** independent versioning of the services layer (Dennis's preference + matches the operating model already in the handover docs). The deploy-failure risk ADR-007 worried about is mitigated by doing publish-then-flip **in the correct order** and verifying the build locally before pushing — not by collapsing the repo count.
+
+---
+
+_Next ADR number: ADR-009_
