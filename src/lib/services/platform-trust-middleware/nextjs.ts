@@ -66,7 +66,7 @@ async function checkRateLimit(
   agentId: string,
 ): Promise<{ allowed: boolean; retry_after?: number }> {
   const { data: limits } = await client
-    .from('rate_limits')
+    .from('trust_rate_limits')
     .select('*')
     .eq('project_id', projectId)
     .in('agent_id', [agentId, '*'])
@@ -79,7 +79,7 @@ async function checkRateLimit(
     const windowEnd = new Date(new Date(limit.window_start).getTime() + WINDOW_SECONDS[limit.window_type] * 1000)
 
     if (now >= windowEnd) {
-      await client.from('rate_limits').update({ current_count: 1, window_start: now.toISOString(), updated_at: now.toISOString() }).eq('id', limit.id)
+      await client.from('trust_rate_limits').update({ current_count: 1, window_start: now.toISOString(), updated_at: now.toISOString() }).eq('id', limit.id)
       continue
     }
 
@@ -87,7 +87,7 @@ async function checkRateLimit(
       return { allowed: false, retry_after: Math.ceil((windowEnd.getTime() - now.getTime()) / 1000) }
     }
 
-    await client.from('rate_limits').update({ current_count: limit.current_count + 1, updated_at: now.toISOString() }).eq('id', limit.id).eq('current_count', limit.current_count)
+    await client.from('trust_rate_limits').update({ current_count: limit.current_count + 1, updated_at: now.toISOString() }).eq('id', limit.id).eq('current_count', limit.current_count)
   }
   return { allowed: true }
 }
@@ -100,7 +100,7 @@ async function checkPermission(
   operation: string,
 ): Promise<{ allowed: boolean; requires_approval: boolean }> {
   const { data: policy } = await client
-    .from('permission_policies')
+    .from('trust_permission_policies')
     .select('*')
     .eq('project_id', projectId)
     .in('agent_id', [agentId, '*'])
@@ -125,7 +125,7 @@ async function logAudit(
   durationMs?: number
 ): Promise<string | null> {
   const { data } = await client
-    .from('audit_log')
+    .from('trust_audit_log')
     .insert({
       project_id: projectId,
       agent_id: agentId,

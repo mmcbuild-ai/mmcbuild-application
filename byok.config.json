@@ -274,8 +274,8 @@
       "scope": "config",
       "phase": "runtime",
       "destination": ["env-file", "vercel"],
-      "description": "Prompt-injection guard + rate-limit backend (consumer model — hosted by the platform operator). Leave blank and set ENABLE_SECURITY_GATE=false to run without it.",
-      "costNote": "N/A (hosted service)."
+      "description": "Security gate backend (prompt-injection guard + audit log + rate limit). SELF-CONTAINED on YOUR OWN Supabase — set this to the SAME value as NEXT_PUBLIC_SUPABASE_URL. Run migration 00047 first (creates the trust_* tables). Leave blank + ENABLE_SECURITY_GATE=false to run the gate without audit logging. Never a CAS/shared value.",
+      "costNote": "Included in your Supabase project."
     },
     {
       "id": "platform-trust-service",
@@ -288,8 +288,8 @@
       "secretClass": "provider-paste",
       "phase": "runtime",
       "destination": ["env-file", "vercel"],
-      "description": "Service key for the platform-trust backend.",
-      "costNote": "N/A."
+      "description": "Service key for the trust backend — set to the SAME value as SUPABASE_SERVICE_ROLE_KEY (your own project). Never a shared/CAS service_role key.",
+      "costNote": "Included."
     },
     {
       "id": "platform-trust-project",
@@ -301,8 +301,34 @@
       "scope": "config",
       "phase": "runtime",
       "destination": ["env-file", "vercel"],
-      "description": "Project ID for the platform-trust backend.",
+      "description": "Namespacing label written on every trust row. Use 'mmc-build'.",
       "costNote": "N/A."
+    },
+    {
+      "id": "property-services-url",
+      "provider": "property-services",
+      "name": "Property Services — Backend URL",
+      "envVar": "NEXT_PUBLIC_PROPERTY_SERVICES_URL",
+      "required": false,
+      "requiredIf": "the address → lot/zoning/climate lookup in project creation is used",
+      "scope": "public",
+      "phase": "runtime",
+      "destination": ["env-file", "vercel"],
+      "description": "CAS-hosted property-intelligence backend (derive/assess edge functions). The ONE shared service MMC keeps consuming from CAS by agreement — Dennis supplies this value; you do not create an account for it.",
+      "costNote": "Billed to CAS (the sanctioned shared dependency)."
+    },
+    {
+      "id": "property-services-api-key",
+      "provider": "property-services",
+      "name": "Property Services — API Key",
+      "envVar": "NEXT_PUBLIC_PROPERTY_SERVICES_API_KEY",
+      "required": false,
+      "requiredIf": "the property lookup is used (this is the key the app code actually reads — X-API-Key)",
+      "scope": "public",
+      "phase": "runtime",
+      "destination": ["env-file", "vercel"],
+      "description": "MMC-scoped property-services API key (rate-limited to MMC). The app reads THIS one, not the anon key. Dennis supplies it.",
+      "costNote": "Billed to CAS."
     },
     {
       "id": "elevenlabs-agent",

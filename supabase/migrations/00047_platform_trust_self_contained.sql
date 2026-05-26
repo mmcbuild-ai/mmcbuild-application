@@ -11,21 +11,23 @@
 --   PLATFORM_TRUST_SERVICE_KEY  = this project's service_role key (same as SUPABASE_SERVICE_ROLE_KEY)
 --   PLATFORM_TRUST_PROJECT_ID   = mmc-build   (namespacing label on every row)
 --
--- Co-locating the trust tables in the app database is deliberate: one backup,
--- one RLS surface, no second project to operate. The CAS shared service_role
--- key is NOT handed to the client.
---
--- Schema is derived from the exact reads/writes in:
---   checkRateLimit.ts, checkPermission.ts, logAuditEvent.ts, meterCall.ts,
---   trust-gate.ts (the trustGate/trustLog/trustMeter shim mmcbuild calls).
+-- TABLE NAMING — `trust_` prefix (IMPORTANT):
+-- The app database already owns a `public.audit_log` table (its own application
+-- audit trail: org_id / user_id / action / entity_type / ...). The portfolio
+-- platform-trust middleware normally writes to a bare `audit_log` in a DEDICATED
+-- trust-events project where there is no such collision. Because MMC Build
+-- co-locates the trust tables in the app database, the four trust tables are
+-- prefixed `trust_` to avoid clobbering the app's audit_log. The vendored
+-- middleware's `.from()` calls were updated to match (this is an mmcbuild-local
+-- divergence from the canonical @caistech package, deliberate + documented).
 --
 -- All objects are IF NOT EXISTS / OR REPLACE — safe to re-run (idempotent).
 -- These tables are accessed ONLY via the service_role client (getTrustClient),
 -- so RLS is ENABLED with no anon/authenticated policies; service_role bypasses
 -- RLS, while direct client access is denied by default.
 
--- ── audit_log — logAuditEvent / trustLog (insert) ───────────────────
-create table if not exists public.audit_log (
+-- ── trust_audit_log — logAuditEvent / trustLog (insert) ─────────────
+create table if not exists public.trust_audit_log (
   id                      uuid primary key default gen_random_uuid(),
   project_id              text        not null,
   session_id              text,
@@ -41,11 +43,11 @@ create table if not exists public.audit_log (
   approved_at             timestamptz,
   created_at              timestamptz not null default now()
 );
-create index if not exists audit_log_project_created_idx on public.audit_log (project_id, created_at desc);
-create index if not exists audit_log_agent_idx           on public.audit_log (project_id, agent_id);
+create index if not exists trust_audit_log_project_created_idx on public.trust_audit_log (project_id, created_at desc);
+create index if not exists trust_audit_log_agent_idx           on public.trust_audit_log (project_id, agent_id);
 
--- ── metering_events — meterCall / trustMeter (insert) ───────────────
-create table if not exists public.metering_events (
+-- ── trust_metering_events — meterCall / trustMeter (insert) ─────────
+create table if not exists public.trust_metering_events (
   id            uuid primary key default gen_random_uuid(),
   project_id    text         not null,
   session_id    text,
@@ -56,12 +58,12 @@ create table if not exists public.metering_events (
   cost_usd      numeric(12,6) not null default 0,
   created_at    timestamptz  not null default now()
 );
-create index if not exists metering_events_project_created_idx on public.metering_events (project_id, created_at desc);
+create index if not exists trust_metering_events_project_created_idx on public.trust_metering_events (project_id, created_at desc);
 
--- ── rate_limits — checkRateLimit (select/update + increment RPC) ────
+-- ── trust_rate_limits — checkRateLimit (select/update + increment RPC)
 -- agent_id is a specific id OR the '*' wildcard. One row per
 -- (project_id, agent_id, window_type) window.
-create table if not exists public.rate_limits (
+create table if not exists public.trust_rate_limits (
   id            uuid primary key default gen_random_uuid(),
   project_id    text         not null,
   agent_id      text         not null,
@@ -74,12 +76,12 @@ create table if not exists public.rate_limits (
   updated_at    timestamptz  not null default now(),
   unique (project_id, agent_id, window_type)
 );
-create index if not exists rate_limits_lookup_idx on public.rate_limits (project_id, agent_id);
+create index if not exists trust_rate_limits_lookup_idx on public.trust_rate_limits (project_id, agent_id);
 
--- ── permission_policies — checkPermission (select) ──────────────────
+-- ── trust_permission_policies — checkPermission (select) ────────────
 -- The shim mmcbuild uses is allow-by-default (a missing row = allowed), so this
 -- table can stay empty unless explicit per-agent policies are wanted later.
-create table if not exists public.permission_policies (
+create table if not exists public.trust_permission_policies (
   id                uuid primary key default gen_random_uuid(),
   project_id        text        not null,
   agent_id          text        not null,
@@ -92,9 +94,9 @@ create table if not exists public.permission_policies (
 );
 
 -- ── RPC get_window_usage — checkRateLimit token/spend caps ──────────
--- Sums cost + tokens from metering_events since a window start. Returns one
--- row (total_cost_usd, total_tokens). Called only when a rate_limits row sets
--- max_tokens or max_spend_usd.
+-- Sums cost + tokens from trust_metering_events since a window start. Returns
+-- one row (total_cost_usd, total_tokens). Called only when a trust_rate_limits
+-- row sets max_tokens or max_spend_usd.
 create or replace function public.get_window_usage(
   p_project_id   text,
   p_window_start timestamptz
@@ -108,7 +110,7 @@ as $$
   select
     coalesce(sum(cost_usd), 0)::numeric                    as total_cost_usd,
     coalesce(sum(input_tokens + output_tokens), 0)::bigint as total_tokens
-  from public.metering_events
+  from public.trust_metering_events
   where project_id = p_project_id
     and created_at >= p_window_start;
 $$;
@@ -121,14 +123,14 @@ volatile
 security definer
 set search_path = public
 as $$
-  update public.rate_limits
+  update public.trust_rate_limits
      set current_count = current_count + 1,
          updated_at    = now()
    where id = limit_id;
 $$;
 
 -- ── RLS — service_role-only (service_role bypasses RLS) ─────────────
-alter table public.audit_log           enable row level security;
-alter table public.metering_events     enable row level security;
-alter table public.rate_limits         enable row level security;
-alter table public.permission_policies enable row level security;
+alter table public.trust_audit_log          enable row level security;
+alter table public.trust_metering_events    enable row level security;
+alter table public.trust_rate_limits        enable row level security;
+alter table public.trust_permission_policies enable row level security;

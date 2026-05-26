@@ -32,7 +32,7 @@ export async function meterCall(
   }
 
   const { data, error } = await supabase
-    .from('metering_events')
+    .from('trust_metering_events')
     .insert(record as never)
     .select('id, cost_usd')
     .single()

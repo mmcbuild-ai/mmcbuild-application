@@ -46,7 +46,7 @@ export async function logAuditEvent(
   }
 
   const { data, error } = await supabase
-    .from('audit_log')
+    .from('trust_audit_log')
     .insert(record as never)
     .select('id, created_at')
     .single()

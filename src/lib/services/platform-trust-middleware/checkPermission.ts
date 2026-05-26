@@ -21,7 +21,7 @@ export async function checkPermission(
   const { project_id, agent_id, scope, operation } = input
 
   const { data: policy, error } = await supabase
-    .from('permission_policies')
+    .from('trust_permission_policies')
     .select('*')
     .eq('project_id', project_id)
     .eq('agent_id', agent_id)

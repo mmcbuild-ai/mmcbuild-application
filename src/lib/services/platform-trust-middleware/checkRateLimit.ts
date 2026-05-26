@@ -33,7 +33,7 @@ export async function checkRateLimit(
 
   // Fetch applicable rate limits (agent-specific or wildcard)
   const { data: limits, error } = await supabase
-    .from('rate_limits')
+    .from('trust_rate_limits')
     .select('*')
     .eq('project_id', project_id)
     .in('agent_id', [agent_id, '*'])
@@ -59,7 +59,7 @@ export async function checkRateLimit(
     if (now >= windowEnd) {
       // Window expired — reset counter atomically
       const { error: resetError } = await supabase
-        .from('rate_limits')
+        .from('trust_rate_limits')
         .update({
           current_count: 1,
           window_start: now.toISOString(),
@@ -131,7 +131,7 @@ export async function checkRateLimit(
     // Fallback if RPC not set up yet
     if (incError) {
       await supabase
-        .from('rate_limits')
+        .from('trust_rate_limits')
         .update({
           current_count: limit.current_count + 1,
           updated_at: now.toISOString(),

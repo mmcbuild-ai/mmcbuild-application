@@ -75,7 +75,7 @@ async function shimCheckRateLimit(
   agent_id: string,
 ): Promise<{ allowed: boolean; retry_after?: number }> {
   const { data: limits } = await client
-    .from('rate_limits')
+    .from('trust_rate_limits')
     .select('*')
     .eq('project_id', projectId)
     .in('agent_id', [agent_id, '*'])
@@ -91,7 +91,7 @@ async function shimCheckRateLimit(
 
     if (now >= windowEnd) {
       await client
-        .from('rate_limits')
+        .from('trust_rate_limits')
         .update({
           current_count: 1,
           window_start: now.toISOString(),
@@ -109,7 +109,7 @@ async function shimCheckRateLimit(
     }
 
     await client
-      .from('rate_limits')
+      .from('trust_rate_limits')
       .update({
         current_count: limit.current_count + 1,
         updated_at: now.toISOString(),
@@ -130,7 +130,7 @@ async function shimCheckPermission(
   operation: string,
 ): Promise<{ allowed: boolean; requires_approval: boolean }> {
   const { data: policy } = await client
-    .from('permission_policies')
+    .from('trust_permission_policies')
     .select('*')
     .eq('project_id', projectId)
     .eq('agent_id', agent_id)
@@ -152,7 +152,7 @@ async function shimLogAudit(
   duration_ms?: number
 ): Promise<string | null> {
   const { data } = await client
-    .from('audit_log')
+    .from('trust_audit_log')
     .insert({
       project_id: projectId,
       session_id: ctx.session_id || null,
@@ -299,7 +299,7 @@ export async function trustMeter(
   const cost_usd = input_tokens * p.input + output_tokens * p.output
 
   await client
-    .from('metering_events')
+    .from('trust_metering_events')
     .insert({
       project_id: resolved.projectId,
       session_id: session_id || null,
