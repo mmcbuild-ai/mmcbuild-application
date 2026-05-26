@@ -24,6 +24,7 @@ function isAllowedOrigin(origin: string | null): origin is string {
     const host = new URL(origin).hostname;
     return (
       host === "mmcbuild-marketing.vercel.app" ||
+      host === "mmcbuild-marketing-theta.vercel.app" ||
       /^mmcbuild-marketing-[a-z0-9-]+-mmc-build\.vercel\.app$/.test(host)
     );
   } catch {
