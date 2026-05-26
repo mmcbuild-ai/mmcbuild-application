@@ -127,19 +127,27 @@ By agreement (2026-05-26), **property-services is the single shared service MMC
 Build keeps consuming from CAS.** Dennis supplies its values directly; Karthik
 creates no account for it. Everything else runs on MMC Build's own infrastructure.
 
-### Platform Trust — NOT handed over (run self-contained)
-Its key is a **shared CAS `service_role` key** spanning the whole portfolio's
-trust-events project, so it must not leave CAS. The security gate (prompt-injection
+### Platform Trust — NOT handed over (run self-contained on MMC Build's own DB)
+The CAS values are a **shared `service_role` key** spanning the whole portfolio's
+trust-events project, so they must not leave CAS. The security gate (prompt-injection
 guard) is mandatory for this REGULATED product, so keep `ENABLE_SECURITY_GATE=true`
-and run it **self-contained**: either leave `PLATFORM_TRUST_*` unset (the gate runs;
-audit logging is skipped) or point them at **MMC Build's own** Supabase with a
-trust-events table. Do **not** paste the CAS values.
+and run it **self-contained on MMC Build's own Supabase**:
 
-| Env var | Req | Owner |
+1. Apply `supabase/migrations/00047_platform_trust_self_contained.sql` to MMC Build's
+   Supabase — it creates the four trust tables + two RPCs the gate uses (idempotent).
+   It auto-applies on `supabase db push` once the CLI is linked to MMC Build's project,
+   or run the SQL directly in MMC Build's SQL Editor.
+2. Set the three env vars to MMC Build's **own** project. The trust tables co-locate in
+   the app database, so these reuse the app's Supabase values:
+
+| Env var | Req | Value |
 |---|---|---|
-| `PLATFORM_TRUST_SUPABASE_URL` | `[O]` | MMC Build (own Supabase) or leave unset — **not** CAS |
-| `PLATFORM_TRUST_SERVICE_KEY` | `[O]` | MMC Build (own `service_role`) or leave unset — **not** CAS |
-| `PLATFORM_TRUST_PROJECT_ID` | `[O]` | `mmc-build` (namespacing label) |
+| `PLATFORM_TRUST_SUPABASE_URL` | `[O]` | same as `NEXT_PUBLIC_SUPABASE_URL` (MMC Build's project URL) |
+| `PLATFORM_TRUST_SERVICE_KEY` | `[O]` | same as `SUPABASE_SERVICE_ROLE_KEY` (MMC Build's `service_role`) — **Sensitive** |
+| `PLATFORM_TRUST_PROJECT_ID` | `[O]` | `mmc-build` (namespacing label on every row) |
+
+Leaving `PLATFORM_TRUST_*` unset is the fallback — the gate still runs, audit logging
+is just skipped. Either way, **never paste the CAS values.**
 
 ### Property Services — site-intelligence backend (wind region, council, climate)
 The address → lot / zoning / climate lookup in project creation. Calls CAS-hosted
