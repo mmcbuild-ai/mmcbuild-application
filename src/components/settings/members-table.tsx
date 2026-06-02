@@ -32,6 +32,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Trash2, Plus, RotateCw, X, Clock } from "lucide-react";
+import { toast } from "sonner";
 import {
   updateMemberRole,
   removeMember,
@@ -517,25 +518,45 @@ function MemberRow({
 function InvitationRow({ invitation }: { invitation: Invitation }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const { confirm, dialog } = useConfirm();
 
   const isExpired = new Date(invitation.expires_at) < new Date();
 
-  function handleRevoke() {
+  async function handleRevoke() {
+    const ok = await confirm({
+      title: "Revoke invitation?",
+      description: `Remove the invitation sent to ${invitation.email}? They will no longer be able to join.`,
+      confirmLabel: "Revoke",
+      destructive: true,
+    });
+    if (!ok) return;
+
     startTransition(async () => {
-      await revokeInvitation(invitation.id);
+      const result = await revokeInvitation(invitation.id);
+      if (result.error) {
+        toast.error(result.error);
+      } else {
+        toast.success("Invitation revoked");
+      }
       router.refresh();
     });
   }
 
-  function handleResend() {
+  async function handleResend() {
     startTransition(async () => {
-      await resendInvitation(invitation.id);
+      const result = await resendInvitation(invitation.id);
+      if (result.error) {
+        toast.error(result.error);
+      } else {
+        toast.success("Invitation resent");
+      }
       router.refresh();
     });
   }
 
   return (
     <TableRow>
+      {dialog}
       <TableCell className="font-medium">{invitation.email}</TableCell>
       <TableCell>
         <Badge

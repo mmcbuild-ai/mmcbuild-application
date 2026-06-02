@@ -60,12 +60,44 @@ const CERT_TYPE_OPTIONS = [
   ]},
 ];
 
-const ACCEPTED_TYPES = [
+const ACCEPTED_MIME_TYPES = [
   "application/pdf",
   "image/jpeg",
   "image/png",
   "image/tiff",
+  "application/acad",
+  "image/vnd.dwg",
+  "image/x-dwg",
+  "application/dwg",
+  "application/x-dwg",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-office",
 ];
+
+const ACCEPTED_EXTENSIONS = [
+  ".pdf", ".jpg", ".jpeg", ".png", ".tiff", ".tif",
+  ".dwg", ".dxf",
+  ".doc", ".docx",
+  ".xls", ".xlsx",
+];
+
+function isAcceptedFile(file: File): boolean {
+  const fileName = file.name.toLowerCase();
+  const fileExtension = fileName.substring(fileName.lastIndexOf("."));
+
+  if (ACCEPTED_MIME_TYPES.includes(file.type)) {
+    return true;
+  }
+
+  if (ACCEPTED_EXTENSIONS.includes(fileExtension)) {
+    return true;
+  }
+
+  return false;
+}
 
 interface ExistingCert {
   id: string;
@@ -116,8 +148,8 @@ export function CertificationUpload({ projectId, existingCerts = [] }: Certifica
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const stageFile = useCallback((file: File) => {
-    if (!ACCEPTED_TYPES.includes(file.type)) {
-      setError("Only PDF, JPEG, PNG, and TIFF files are accepted");
+    if (!isAcceptedFile(file)) {
+      setError("File type not accepted. Allowed: PDF, JPEG, PNG, TIFF, DWG, DOC, DOCX, XLS, XLSX");
       return;
     }
     if (file.size > 100 * 1024 * 1024) {
@@ -289,14 +321,14 @@ export function CertificationUpload({ projectId, existingCerts = [] }: Certifica
               Drag and drop certification file here
             </p>
             <p className="mb-3 text-xs text-muted-foreground">
-              PDF, JPEG, PNG, or TIFF — max 100MB
+              PDF, JPEG, PNG, TIFF, DWG, DOC, DOCX, XLS, XLSX — max 100MB
             </p>
             <Button variant="outline" size="sm" asChild>
               <label className="cursor-pointer">
                 Browse Files
                 <input
                   type="file"
-                  accept=".pdf,.jpg,.jpeg,.png,.tiff,.tif"
+                  accept=".pdf,.jpg,.jpeg,.png,.tiff,.tif,.dwg,.dxf,.doc,.docx,.xls,.xlsx"
                   className="hidden"
                   onChange={handleInputChange}
                 />
