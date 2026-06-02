@@ -19,6 +19,7 @@ import {
   BookOpen,
   ArrowUpRight,
   FlaskConical,
+  HelpCircle,
 } from "lucide-react";
 import { signOut } from "@/app/(auth)/actions";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,7 @@ const bottomNav = [
   { name: "Knowledge", href: "/settings/knowledge", icon: BookOpen },
   { name: "Billing", href: "/billing", icon: CreditCard, color: "bg-indigo-600" },
   { name: "Settings", href: "/settings", icon: Settings },
+  { name: "Support", href: "/support", icon: HelpCircle },
 ];
 
 export type SidebarProps = {

@@ -154,7 +154,7 @@ export default function PublicDirectoryRegisterPage() {
                 </div>
                 <div>
                   <Label htmlFor="abn">ABN</Label>
-                  <Input id="abn" name="abn" placeholder="XX XXX XXX XXX" />
+                  <Input id="abn" name="abn" placeholder="XX XXX XXX XXX" required />
                 </div>
               </div>
 
