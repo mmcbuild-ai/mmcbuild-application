@@ -156,6 +156,38 @@ export async function updateSpecialisations(professionalId: string, labels: stri
   return { success: true };
 }
 
+// ─── Deregistration ─---
+
+export async function deregisterProfessional(id: string) {
+  const profile = await getAuthProfile();
+  if (!profile) return { error: "Not authenticated" };
+
+  // Verify ownership
+  const { data: pro } = await db()
+    .from("professionals")
+    .select("org_id, status")
+    .eq("id", id)
+    .single();
+
+  if (!pro) return { error: "Listing not found" };
+  if (pro.org_id !== profile.org_id) return { error: "Not authorised" };
+  if (pro.status === "deregistered") return { error: "Listing is already deregistered" };
+
+  // Soft delete: set status to deregistered
+  const { error } = await db()
+    .from("professionals")
+    .update({
+      status: "deregistered",
+      deregistered_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+
+  if (error) return { error: `Deregistration failed: ${(error as { message: string })?.message}` };
+
+  return { success: true };
+}
+
 // ─── Portfolio ───
 
 export async function addPortfolioItem(professionalId: string, input: PortfolioItemInput) {
@@ -303,7 +335,7 @@ export async function getProfessionalProfile(id: string) {
     .eq("id", id)
     .single();
 
-  if (!professional) return null;
+  if (!professional || professional.status === "deregistered") return null;
 
   const [specResult, portfolioResult, reviewResult] = await Promise.all([
     db()

@@ -6,9 +6,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { TRADE_TYPE_LABELS, AUSTRALIAN_STATES, STATE_LABELS, MMC_SPECIALISATIONS } from "@/lib/direct/constants";
 import { ImageUpload } from "./image-upload";
-import { updateProfessionalProfile, updateSpecialisations } from "@/app/(dashboard)/direct/actions";
+import { updateProfessionalProfile, updateSpecialisations, deregisterProfessional } from "@/app/(dashboard)/direct/actions";
 import type { Professional, Specialisation, AustralianState } from "@/lib/direct/types";
 
 interface ProfileEditFormProps {
@@ -21,6 +31,8 @@ export function ProfileEditForm({ professional: pro, orgId }: ProfileEditFormPro
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [deregisterOpen, setDeregisterOpen] = useState(false);
+  const [deregistering, setDeregistering] = useState(false);
 
   const [companyName, setCompanyName] = useState(pro.company_name);
   const [abn, setAbn] = useState(pro.abn || "");
@@ -87,6 +99,18 @@ export function ProfileEditForm({ professional: pro, orgId }: ProfileEditFormPro
     } else {
       setSuccess(true);
       router.refresh();
+    }
+  };
+
+  const handleDeregister = async () => {
+    setDeregistering(true);
+    const result = await deregisterProfessional(pro.id);
+    setDeregistering(false);
+    if (result.error) {
+      setError(result.error);
+      setDeregisterOpen(false);
+    } else {
+      router.push("/direct");
     }
   };
 
@@ -214,9 +238,44 @@ export function ProfileEditForm({ professional: pro, orgId }: ProfileEditFormPro
       {error && <p className="text-sm text-red-600">{error}</p>}
       {success && <p className="text-sm text-green-600">Profile updated successfully!</p>}
 
-      <Button type="submit" disabled={loading} className="bg-amber-600 hover:bg-amber-700">
-        {loading ? "Saving..." : "Save Changes"}
-      </Button>
+      <div className="flex gap-3">
+        <Button type="submit" disabled={loading} className="bg-amber-600 hover:bg-amber-700">
+          {loading ? "Saving..." : "Save Changes"}
+        </Button>
+
+        {pro.status !== "deregistered" && (
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={() => setDeregisterOpen(true)}
+          >
+            Deregister Business
+          </Button>
+        )}
+      </div>
+
+      <AlertDialog open={deregisterOpen} onOpenChange={setDeregisterOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Deregister Business</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to deregister {pro.company_name}? 
+              This will remove your listing from the public MMC Direct directory. 
+              You can re-register later if needed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeregister}
+              disabled={deregistering}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {deregistering ? "Deregistering..." : "Yes, deregister"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </form>
   );
 }
