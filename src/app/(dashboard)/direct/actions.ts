@@ -78,6 +78,20 @@ export async function registerProfessional(input: RegistrationInput) {
       );
   }
 
+  // Send notification to Karen about new registration
+  await inngest.send({
+    name: "direct/professional.registered",
+    data: {
+      professionalId: profId,
+      companyName: data.company_name,
+      tradeType: data.trade_type,
+      contactName: profile.full_name,
+      contactEmail: data.email,
+      regions: data.regions,
+      specialisations: specialisations || [],
+    },
+  });
+
   return { id: profId };
 }
 
