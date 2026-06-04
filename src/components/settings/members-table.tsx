@@ -48,8 +48,7 @@ import {
   canManageMembers,
 } from "@/lib/auth/roles";
 import type { UserRole } from "@/lib/supabase/types";
-
-type SeatType = "internal" | "external" | "viewer";
+import type { SeatType } from "@/lib/auth/seats";
 
 interface Member {
   id: string;
@@ -96,6 +95,7 @@ interface MembersTableProps {
 
 const SEAT_TYPE_LABEL: Record<SeatType, string> = {
   internal: "Internal",
+  beta: "Beta Tester",
   external: "External",
   viewer: "Viewer",
 };
