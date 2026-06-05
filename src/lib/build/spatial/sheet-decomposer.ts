@@ -9,39 +9,60 @@
  * / SAHA failure mode.
  *
  * This module fixes that case by:
- *   1. Sending the PDF natively to Claude vision to identify each drawing
- *      tile's bounding box + classify it
- *   2. Filtering to floor-plan candidates, sorted by confidence × area
- *   3. For each candidate: cropping the PDF's CropBox to that bbox region
- *      using pdf-lib, then sending the cropped single-page PDF natively to
- *      Claude with a verify-then-extract prompt
- *   4. Returning the first crop that produces a viable extraction
+ *   1. Rasterising the PDF page to a HIGH-RESOLUTION PNG (CloudConvert, 300 DPI)
+ *   2. Sending the raster to Claude vision to locate + classify each drawing
+ *      tile's bounding box
+ *   3. Filtering to floor-plan candidates, sorted by confidence × area
+ *   4. For each candidate: cropping the high-res raster to that bbox with sharp,
+ *      then sending the cropped PNG to Claude with a verify-then-extract prompt
+ *   5. Returning the first crop that produces a viable extraction
  *
- * No local raster rendering — uses Anthropic's native PDF document content
- * type throughout. Aligns with the project's "prefer native API over bundle
- * workarounds" rule, which was locked in after multiple commits trying to
- * make pdfjs-dist/pdf-to-img/@napi-rs/canvas bundle correctly on Vercel.
+ * WHY RASTER, NOT NATIVE PDF: an earlier version sent the PDF natively and
+ * cropped via pdf-lib's CropBox. That fails because the CloudConvert-rendered
+ * model-space dump is a single small page (~800×600pt) with 30+ tiles — each
+ * tile is ~100px, and pdf-lib cropping adds NO resolution. At that scale Claude
+ * literally cannot read internal walls: on Manor Homes it tagged the house
+ * floor plans as "bus interior layouts" and found zero floor-plan candidates.
+ * Rendering at 300 DPI (→ ~3300×2500) then cropping makes every tile legible.
  *
- * Cost: ~$0.05-$0.15 per DWG file (one bbox detection call + up to 6
- * verify+extract calls). Only runs when the standard classifier fails, so
- * adds zero cost to single-drawing council DA PDFs.
+ * Rasterisation is done via CloudConvert (a hard dependency of this pipeline
+ * already) rather than a local rasteriser (pdf-to-img / @napi-rs/canvas), which
+ * has a documented history of failing to bundle on Vercel — the original reason
+ * this module avoided raster. CloudConvert (server-side) + sharp (reliable
+ * native, used by Next image optimisation) keeps every step Vercel-safe.
  *
- * Gated by ENABLE_SHEET_DECOMPOSITION feature flag.
+ * Cost: ~$0.06-$0.18 per DWG file (one PDF→PNG conversion + one bbox detection
+ * call + up to MAX_CANDIDATES_TO_TRY verify+extract calls). Only runs when the
+ * standard classifier fails, so adds zero cost to single-drawing council DA PDFs.
+ *
+ * Gated by ENABLE_SHEET_DECOMPOSITION feature flag (on by default; set to
+ * "false" to disable).
  */
 
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
-import { PDFDocument } from "pdf-lib";
+import sharp from "sharp";
 import { extractJson } from "@/lib/ai/extract-json";
+import { rasterizePdfToPng } from "@/lib/plans/dwg-converter";
 import type { SpatialLayout } from "./types";
 
 const BBOX_DETECTOR_MODEL = "claude-sonnet-4-6";
 const EXTRACTOR_MODEL = "claude-sonnet-4-6";
 const PAD_PCT = 2;
-// Capped at 2 (was 6) so the decomposer fits inside Vercel's ~60s edge
-// connection-close window. Two highest-confidence candidates run in
-// parallel; first to produce a viable layout wins.
-const MAX_CANDIDATES_TO_TRY = 2;
+// 450 DPI on a typical ~800pt-wide CloudConvert page → ~5000px raster. At 300
+// DPI (~3300px) the per-tile detail was too low and the verify-extract pass
+// downgraded genuine floor plans to "site_plan" because internal walls blurred;
+// ~5000px matches the scale-6 render that reliably extracted Manor Homes.
+const RASTER_DPI = 450;
+// Candidates tried (in parallel) by the verify-extract pass. Extraction runs
+// inside an Inngest step with the full 300s Vercel invocation budget (not the
+// old ~60s edge connection-close window), so we can afford to try several of
+// the detected floor-plan tiles. They run concurrently, so wall-clock is
+// ~max(per-candidate), not the sum.
+const MAX_CANDIDATES_TO_TRY = 10;
+// Candidates are tried in parallel chunks of this size — enough concurrency to
+// be fast, capped so we don't fire 10 vision calls at once (rate limits).
+const CANDIDATE_CHUNK_SIZE = 5;
 const MIN_VIABLE_WALLS = 4;
 const MIN_VIABLE_ROOMS = 1;
 
@@ -89,7 +110,7 @@ export interface SheetDecompositionResult {
   error?: string;
 }
 
-const BBOX_PROMPT = `You are looking at a single PDF page rendered from a DWG. The DWG was exported in MODEL SPACE — multiple paper-space sheets have been arranged as TILES in one big canvas. Each tile is one complete drawing.
+const BBOX_PROMPT = `You are looking at a high-resolution image rendered from a DWG. The DWG was exported in MODEL SPACE — multiple paper-space sheets have been arranged as TILES in one big canvas. Each tile is one complete drawing.
 
 YOUR JOB: locate each TILE on the canvas and classify what drawing it contains.
 
@@ -124,20 +145,16 @@ Output ONLY valid JSON (no markdown fences):
   ]
 }
 
-bbox is in PERCENTAGES (0-100) of the PDF page, with origin TOP-LEFT. Add 2-3% padding so dimension lines aren't cut.`;
+bbox is in PERCENTAGES (0-100) of the image, with origin TOP-LEFT. Add 2-3% padding so dimension lines aren't cut.`;
 
-const VERIFY_EXTRACT_PROMPT = `You are analysing a single page from a PDF. The page has been cropped to show one drawing that was tagged as a potential floor plan, but VERIFY before extracting.
+const VERIFY_EXTRACT_PROMPT = `You are looking at an image cropped to a single architectural drawing tile that has ALREADY been identified as a floor plan. Your job is to EXTRACT its spatial layout — default to extracting, not rejecting.
 
-A real FLOOR PLAN has:
-- Top-down view of building interior
-- Internal partition walls visible (parallel lines between rooms)
-- Room labels (Living, Bedroom, Kitchen, etc.) OR clear room divisions
-- Extent stops at building external walls (NOT showing lot, streets, neighbouring properties)
+A floor plan is a top-down view with internal partition walls and rooms. The tile may show one dwelling or several units side by side — extract every wall and room you can see across the whole tile. Faint or thin lines still count as walls; small unlabelled spaces still count as rooms.
 
-If the page is anything else (site plan, elevation, schedule, detail, cover sheet), return:
-{"error":"not_a_floor_plan","detected":"site_plan|elevation|schedule|details|cover|other"}
+ONLY return a rejection if the image contains NO floor plan whatsoever — i.e. it is purely an elevation (side/facade view), a vertical section, a schedule/table, a cover/title sheet, or a bare site outline with no internal room divisions at all. In that case return:
+{"error":"not_a_floor_plan","detected":"elevation|section|schedule|cover|site_plan|other"}
 
-If it IS a floor plan, extract:
+Otherwise (the normal case) extract:
 {
   "walls": [{"id":"w1","start":{"x":0,"y":0},"end":{"x":6,"y":0},"thickness":0.09,"type":"external","material":"timber_frame"}],
   "rooms": [{"id":"r1","name":"Living","polygon":[{"x":0,"y":0},{"x":6,"y":0},{"x":6,"y":4},{"x":0,"y":4}],"area_m2":24,"floor_level":0,"type":"living"}],
@@ -151,49 +168,67 @@ If it IS a floor plan, extract:
 
 Trace EVERY wall segment — don't skip internal partitions. External walls form a closed perimeter loop. Use metres. Return ONLY JSON.`;
 
+/** Intersection-over-union of two percentage bboxes (origin top-left). */
+function bboxIoU(
+  a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number },
+): number {
+  const ix = Math.max(a.x, b.x);
+  const iy = Math.max(a.y, b.y);
+  const ix2 = Math.min(a.x + a.w, b.x + b.w);
+  const iy2 = Math.min(a.y + a.h, b.y + b.h);
+  const iw = Math.max(0, ix2 - ix);
+  const ih = Math.max(0, iy2 - iy);
+  const inter = iw * ih;
+  const union = a.w * a.h + b.w * b.h - inter;
+  return union > 0 ? inter / union : 0;
+}
+
 /**
- * Take a single-page source PDF and produce a new single-page PDF whose
- * CropBox restricts the visible region to the given bbox (expressed as
- * percentages of the source page with origin TOP-LEFT, matching Claude's
- * bbox detector output). PDF coordinate space is bottom-left origin, so
- * the y axis flips during conversion.
- *
- * Returns a base64-encoded PDF, or null if pdf-lib couldn't copy/save the
- * page (defensive — some CAD-exported PDFs have malformed page objects).
+ * Drop near-duplicate candidates (the detector sometimes emits the same tile
+ * twice). Keeps the first occurrence of any cluster of overlapping bboxes;
+ * input must already be sorted best-first so the kept one is the strongest.
  */
-async function cropPdfPageToBbox(
-  sourcePdfBytes: Uint8Array,
+function dedupeCandidates(cands: DrawingRegion[]): DrawingRegion[] {
+  const kept: DrawingRegion[] = [];
+  for (const c of cands) {
+    if (!kept.some((k) => bboxIoU(k.bbox, c.bbox) > 0.5)) kept.push(c);
+  }
+  return kept;
+}
+
+/**
+ * Crop a region (expressed as percentages of the source image, origin TOP-LEFT,
+ * matching Claude's bbox output) out of a high-resolution PNG using sharp, with
+ * PAD_PCT padding so dimension lines aren't clipped. Returns a base64 JPEG, or
+ * null if the crop region is degenerate / sharp fails.
+ */
+async function cropRasterToBbox(
+  raster: Buffer,
+  width: number,
+  height: number,
   bbox: { x: number; y: number; w: number; h: number },
 ): Promise<string | null> {
   try {
-    const sourceDoc = await PDFDocument.load(sourcePdfBytes, {
-      ignoreEncryption: true,
-    });
-    const out = await PDFDocument.create();
-    const [copied] = await out.copyPages(sourceDoc, [0]);
-    out.addPage(copied);
-
-    const { width: pageW, height: pageH } = copied.getSize();
-    const padX = (PAD_PCT / 100) * pageW;
-    const padY = (PAD_PCT / 100) * pageH;
-    const cropX = Math.max(0, (bbox.x / 100) * pageW - padX);
+    const left = Math.max(0, Math.floor(((bbox.x - PAD_PCT) / 100) * width));
+    const top = Math.max(0, Math.floor(((bbox.y - PAD_PCT) / 100) * height));
     const cropW = Math.min(
-      pageW - cropX,
-      (bbox.w / 100) * pageW + 2 * padX,
+      width - left,
+      Math.ceil(((bbox.w + 2 * PAD_PCT) / 100) * width),
     );
-    // Flip y: PDF origin is bottom-left, bbox origin is top-left
-    const topPt = (bbox.y / 100) * pageH;
-    const heightPt = (bbox.h / 100) * pageH;
-    const cropYBottom = Math.max(0, pageH - topPt - heightPt - padY);
-    const cropH = Math.min(pageH - cropYBottom, heightPt + 2 * padY);
+    const cropH = Math.min(
+      height - top,
+      Math.ceil(((bbox.h + 2 * PAD_PCT) / 100) * height),
+    );
+    if (cropW < 8 || cropH < 8) return null;
 
-    copied.setCropBox(cropX, cropYBottom, cropW, cropH);
-    copied.setMediaBox(cropX, cropYBottom, cropW, cropH);
-
-    const bytes = await out.save();
-    return Buffer.from(bytes).toString("base64");
+    const out = await sharp(raster)
+      .extract({ left, top, width: cropW, height: cropH })
+      .jpeg({ quality: 90 })
+      .toBuffer();
+    return out.toString("base64");
   } catch (err) {
-    console.error("[cropPdfPageToBbox] failed:", err);
+    console.error("[cropRasterToBbox] failed:", err);
     return null;
   }
 }
@@ -211,12 +246,40 @@ export async function decomposeSheetAndExtractFloorPlan(
 ): Promise<SheetDecompositionResult> {
   const anthropic = getClient();
   const attempts: SheetDecompositionResult["attempts"] = [];
-  const pdfBase64 = pdfBuffer.toString("base64");
-  const sourceBytes = new Uint8Array(pdfBuffer);
 
-  // 1. Bbox detection — send the PDF natively to Claude (no local raster)
+  // 1. Rasterise the PDF to a high-resolution PNG (Vercel-safe, server-side).
+  const raster = await rasterizePdfToPng(pdfBuffer, RASTER_DPI);
+  if ("error" in raster) {
+    return {
+      layout: null,
+      attempts,
+      drawingsDetected: 0,
+      error: `PDF rasterisation failed: ${raster.error}`,
+    };
+  }
+  const rasterBuf = raster.buffer;
+  let rasterW: number;
+  let rasterH: number;
+  try {
+    const meta = await sharp(rasterBuf).metadata();
+    rasterW = meta.width ?? 0;
+    rasterH = meta.height ?? 0;
+    if (!rasterW || !rasterH) throw new Error("zero dimensions");
+  } catch (err) {
+    return {
+      layout: null,
+      attempts,
+      drawingsDetected: 0,
+      error: `Raster metadata read failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  // 2. Bbox detection — send a downscaled JPEG of the raster (Claude caps image
+  // inputs at ~1568px on the long edge anyway, so a full-res send is wasted
+  // bytes; detection works off the overall layout, not fine detail).
   let drawings: DrawingRegion[] = [];
   try {
+    const detectJpeg = await sharp(rasterBuf).jpeg({ quality: 85 }).toBuffer();
     const resp = await anthropic.messages.create({
       model: BBOX_DETECTOR_MODEL,
       max_tokens: 6000,
@@ -227,16 +290,16 @@ export async function decomposeSheetAndExtractFloorPlan(
           role: "user",
           content: [
             {
-              type: "document",
+              type: "image",
               source: {
                 type: "base64",
-                media_type: "application/pdf",
-                data: pdfBase64,
+                media_type: "image/jpeg",
+                data: detectJpeg.toString("base64"),
               },
             },
             {
               type: "text",
-              text: "Identify all drawing tiles on this PDF page. Be conservative on floor_plan_*. Return ONLY JSON.",
+              text: "Identify all drawing tiles in this image. Be conservative on floor_plan_*. Return ONLY JSON.",
             },
           ],
         },
@@ -256,58 +319,60 @@ export async function decomposeSheetAndExtractFloorPlan(
     };
   }
 
-  // 2. Filter to floor-plan candidates, sort by confidence × area
-  let candidates = drawings
-    .filter(
-      (d) => d.type === "floor_plan_ground" || d.type === "floor_plan_upper",
-    )
-    .sort((a, b) => {
-      const confDiff = b.confidence - a.confidence;
-      if (Math.abs(confDiff) > 0.02) return confDiff;
-      return b.bbox.w * b.bbox.h - a.bbox.w * a.bbox.h;
-    });
+  // 3. Filter to floor-plan candidates, sort by confidence × area, dedupe
+  let candidates = dedupeCandidates(
+    drawings
+      .filter(
+        (d) => d.type === "floor_plan_ground" || d.type === "floor_plan_upper",
+      )
+      .sort((a, b) => {
+        const confDiff = b.confidence - a.confidence;
+        if (Math.abs(confDiff) > 0.02) return confDiff;
+        return b.bbox.w * b.bbox.h - a.bbox.w * a.bbox.h;
+      }),
+  );
 
   // Last-resort fallback: if the detector found nothing it called a floor
-  // plan (or nothing at all), synthesize a single whole-page candidate and
-  // let the verify-extract pass have a go at the entire page. The standard
-  // extractor already failed on the whole page with its own prompt, but the
-  // decomposer's verify-extract prompt is more focused, so it sometimes
-  // recovers cases like SAHA's Row Homes DWG where the rasterized model
-  // space doesn't look like a tile grid.
+  // plan, synthesize a single whole-image candidate and let the verify-extract
+  // pass have a go at the entire raster.
   if (candidates.length === 0) {
     candidates = [
       {
         type: "floor_plan_ground",
         bbox: { x: 0, y: 0, w: 100, h: 100 },
-        title: "whole-page fallback",
+        title: "whole-image fallback",
         confidence: 0.4,
         evidence: "synthesized — bbox detector found no floor-plan candidates",
       },
     ];
   }
 
-  // 3. Run verify-extract on the top candidates IN PARALLEL so the
-  // decomposer total latency is max(per-candidate) rather than sum(...).
-  // Sequential would push us over the Vercel edge connection-close window.
-  // Extended thinking is dropped on verify-extract — it's a simpler task
-  // than bbox detection and not worth the latency.
-  const picks = candidates.slice(0, MAX_CANDIDATES_TO_TRY);
+  // 4. Run verify-extract on the candidates, cropped out of the HIGH-RES raster
+  // (sharp) so each drawing is legible. Tried in parallel chunks: enough
+  // candidates that a viable floor plan is reliably found even when the
+  // top-ranked tiles get rejected by the verifier (the consistency failure mode
+  // — a real plan ranked below a small cap), while capping concurrency.
+  const toTry = candidates.slice(0, MAX_CANDIDATES_TO_TRY);
 
-  type CandidateAttempt = SheetDecompositionResult["attempts"][number];
   type CandidateResolution = {
-    attempt: CandidateAttempt;
+    attempt: SheetDecompositionResult["attempts"][number];
     viable: SpatialLayout | null;
   };
 
   async function runCandidate(
     pick: DrawingRegion,
   ): Promise<CandidateResolution> {
-    const croppedPdfBase64 = await cropPdfPageToBbox(sourceBytes, pick.bbox);
-    if (!croppedPdfBase64) {
+    const croppedBase64 = await cropRasterToBbox(
+      rasterBuf,
+      rasterW,
+      rasterH,
+      pick.bbox,
+    );
+    if (!croppedBase64) {
       return {
         attempt: {
           candidate: pick,
-          outcome: { kind: "error", message: "pdf-lib crop failed" },
+          outcome: { kind: "error", message: "sharp crop failed" },
         },
         viable: null,
       };
@@ -323,11 +388,11 @@ export async function decomposeSheetAndExtractFloorPlan(
             role: "user",
             content: [
               {
-                type: "document",
+                type: "image",
                 source: {
                   type: "base64",
-                  media_type: "application/pdf",
-                  data: croppedPdfBase64,
+                  media_type: "image/jpeg",
+                  data: croppedBase64,
                 },
               },
               {
@@ -407,25 +472,40 @@ export async function decomposeSheetAndExtractFloorPlan(
     }
   }
 
-  const settled = await Promise.allSettled(picks.map(runCandidate));
-  let winning: SpatialLayout | null = null;
-  for (let i = 0; i < settled.length; i++) {
-    const r = settled[i];
-    if (r.status === "fulfilled") {
-      attempts.push(r.value.attempt);
-      if (!winning && r.value.viable) winning = r.value.viable;
-    } else {
-      attempts.push({
-        candidate: picks[i],
-        outcome: {
-          kind: "error",
-          message: r.reason instanceof Error ? r.reason.message : String(r.reason),
-        },
-      });
+  const viableLayouts: SpatialLayout[] = [];
+  for (let start = 0; start < toTry.length; start += CANDIDATE_CHUNK_SIZE) {
+    const chunk = toTry.slice(start, start + CANDIDATE_CHUNK_SIZE);
+    const settled = await Promise.allSettled(chunk.map(runCandidate));
+    for (let i = 0; i < settled.length; i++) {
+      const r = settled[i];
+      if (r.status === "fulfilled") {
+        attempts.push(r.value.attempt);
+        if (r.value.viable) viableLayouts.push(r.value.viable);
+      } else {
+        attempts.push({
+          candidate: chunk[i],
+          outcome: {
+            kind: "error",
+            message:
+              r.reason instanceof Error ? r.reason.message : String(r.reason),
+          },
+        });
+      }
     }
+    // Stop as soon as a chunk yields any viable layout — no need to spend
+    // calls on the remaining tiles.
+    if (viableLayouts.length > 0) break;
   }
 
-  if (winning) {
+  if (viableLayouts.length > 0) {
+    // Pick the richest plan (most walls + rooms) among the viable ones — the
+    // fullest floor plan rather than just whichever resolved first.
+    const winning = viableLayouts.sort(
+      (a, b) =>
+        (b.walls?.length ?? 0) +
+        (b.rooms?.length ?? 0) -
+        ((a.walls?.length ?? 0) + (a.rooms?.length ?? 0)),
+    )[0];
     return { layout: winning, attempts, drawingsDetected: drawings.length };
   }
 

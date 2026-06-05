@@ -352,7 +352,9 @@ export async function extractFullHouse(
   // classifier sees one busy page and can't match floor_plan_ground; this
   // pass uses Claude vision to find each drawing tile, then iterates
   // floor-plan candidates with a verify-then-extract prompt.
-  // Off by default — flip ENABLE_SHEET_DECOMPOSITION=true to enable.
+  // On by default — set ENABLE_SHEET_DECOMPOSITION=false to disable. Only runs
+  // when the standard extractor failed, so it adds zero cost to plans that
+  // extract cleanly; for model-space DWG dumps it's the path that recovers them.
   let floorPlanLayout = floorPlanResult?.layout ?? null;
   let sheetDecompositionUsed = false;
   let decomposer: DecomposerDiagnostic | undefined;
@@ -366,7 +368,7 @@ export async function extractFullHouse(
       (floorPlanResult.layout.rooms?.length || 0) === 0);
   if (!standardExtractorFailed) {
     decomposer = { status: "skipped-not-needed" };
-  } else if (process.env.ENABLE_SHEET_DECOMPOSITION?.trim() !== "true") {
+  } else if (process.env.ENABLE_SHEET_DECOMPOSITION?.trim() === "false") {
     decomposer = { status: "skipped-gate-off" };
   } else {
     console.log(
@@ -436,6 +438,15 @@ export async function extractFullHouse(
       material: best.roof?.material,
       colour: best.roof?.colour,
     };
+  }
+
+  // Default roof when no elevation/roof-plan gave us a form — e.g. the sheet
+  // decomposer path extracts from a floor-plan tile only, so it never sees an
+  // elevation. A roofless 3D model reads as broken; a conservative gable
+  // matches the DXF-direct path's default so every successful extraction
+  // renders a complete house (floor plan + walls + roof).
+  if (!layout.roof) {
+    layout.roof = { form: "gable", pitch_deg: 22.5, eave_overhang_m: 0.5 };
   }
 
   // Wall height — average across elevations that reported one

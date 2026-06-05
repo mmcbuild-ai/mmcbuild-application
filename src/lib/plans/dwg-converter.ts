@@ -92,6 +92,7 @@ export async function convertViaCloudConvert(
   inputFormat: string,
   outputFormat: string,
   uploadMimeType: string = "application/octet-stream",
+  convertOptions: Record<string, unknown> = {},
 ): Promise<CloudConvertResult> {
   const apiKey = process.env.CLOUDCONVERT_API_KEY;
   if (!apiKey) {
@@ -116,6 +117,7 @@ export async function convertViaCloudConvert(
           input: "import-file",
           input_format: inputFormat,
           output_format: outputFormat,
+          ...convertOptions,
         },
         "export-file": {
           operation: "export/url",
@@ -202,4 +204,35 @@ export async function convertViaCloudConvert(
   }
 
   return { error: "CloudConvert job timed out" };
+}
+
+/**
+ * Rasterise the first page of a PDF to a high-resolution PNG via CloudConvert.
+ *
+ * Used by the sheet decomposer to turn a CloudConvert-rendered model-space DWG
+ * dump (many drawings tiled on one small page) into a raster Claude vision can
+ * actually read. CloudConvert's native PDF document type is rendered at too low
+ * a resolution to discern internal walls on a tiled sheet — at the default page
+ * size each tile is ~100px and floor plans get mis-read (Claude tagged Manor
+ * Homes floor plans as "bus interiors" at native res). Rendering at 300 DPI
+ * yields a ~3300×2500 PNG where each tile is legible after cropping.
+ *
+ * Done server-side via CloudConvert (already a hard dependency of this pipeline)
+ * rather than a local rasteriser (pdf-to-img / @napi-rs/canvas) because the
+ * latter has a documented history of failing to bundle on Vercel — the very
+ * reason the decomposer originally avoided raster. CloudConvert + sharp keeps
+ * every step Vercel-safe.
+ */
+export async function rasterizePdfToPng(
+  pdfBuffer: Buffer,
+  pixelDensity: number = 300,
+): Promise<CloudConvertResult> {
+  return convertViaCloudConvert(
+    pdfBuffer,
+    "page.pdf",
+    "pdf",
+    "png",
+    "application/pdf",
+    { pixel_density: pixelDensity, pages: "1" },
+  );
 }
