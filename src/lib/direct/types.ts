@@ -1,4 +1,4 @@
-export type ProfessionalStatus = "pending" | "approved" | "suspended";
+export type ProfessionalStatus = "pending" | "approved" | "suspended" | "deregistered";
 
 export type TradeType =
   | "builder" | "architect" | "structural_engineer" | "certifier"
