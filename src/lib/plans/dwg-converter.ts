@@ -16,14 +16,22 @@
 
 const CLOUDCONVERT_BASE = "https://api.cloudconvert.com/v2";
 const POLL_INTERVAL_MS = 3000;
-// 90s poll budget — must fit inside a single Vercel 300s step.run
-// invocation alongside the upload + initial job creation + final download.
-// If CloudConvert is slow on a given DWG (queue depth, large file, etc.)
-// we fail-fast and let the orchestrator try the alternative path (e.g.
-// DXF fails → PDF + AI vision). Was 80 attempts (240s) — that meant a
-// single slow CC call could blow past the entire step budget and trigger
-// Inngest transport retries that span 11+ minutes.
-const MAX_POLL_ATTEMPTS = 30;
+// 150s poll budget. Each CloudConvert call now runs inside its OWN
+// step.run (dwg-dxf-path / convert-to-pdf are separate steps since the
+// 839f3f3 + 381cc0e pipeline split), so it gets a full Vercel 300s
+// invocation rather than sharing one with the classifier/extractor/
+// decomposer chain. 150s leaves ~150s of step headroom for the source
+// download, signed upload, converted-file download, and intermediate
+// re-upload that bracket this call.
+//
+// History: was 240s (80 attempts) when extraction was monolithic — a
+// slow CC call then blew the whole step budget and spun Inngest
+// transport retries for 11+ min, so ae6916c cut it to 90s (30). But 90s
+// is below CloudConvert's own "30s–3min depending on size" envelope, so
+// genuinely large DWGs timed out (recon-dwg-to-pdf.mjs proves they
+// convert fine given ~240s). 150s restores headroom for large files
+// while staying safely inside the now-isolated per-step 300s budget.
+const MAX_POLL_ATTEMPTS = 50;
 // Per-HTTP-call timeout. Any single fetch (job create, file upload,
 // status poll, file download) that takes longer than this aborts cleanly
 // rather than hanging the function until Vercel kills the connection.
