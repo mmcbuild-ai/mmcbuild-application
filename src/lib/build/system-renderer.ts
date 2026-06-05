@@ -138,32 +138,32 @@ interface SystemPalette {
 
 const PALETTES: Record<MMCSystem, SystemPalette> = {
   traditional: {
-    externalWall: 0xb88b6b, // warm brick-veneer
+    externalWall: 0xb0704a, // warm terracotta brick — clearly "masonry"
     internalWall: 0xe6e2dc,
-    roof: 0x4a3c34,
+    roof: 0x6b4632, // terracotta-tile brown
     ground: 0xe8e4dc,
     overlay: 0xa85b3a,
   },
   panelised: {
-    externalWall: 0xe8e4dc, // off-white panel
+    externalWall: 0xf2efe9, // crisp factory-white panel
     internalWall: 0xf0ece6,
-    roof: 0x6e6964,
+    roof: 0x55585c, // cool grey metal
     ground: 0xe8e4dc,
-    overlay: 0x8b5cf6, // violet seams
+    overlay: 0x7c4dff, // strong violet seams
   },
   volumetric: {
-    externalWall: 0xd8cdb8, // warm tan
-    internalWall: 0xe8e0d0,
-    roof: 0x5a5048,
+    externalWall: 0xb9c4cf, // cool steel module skin
+    internalWall: 0xc9d2da,
+    roof: 0x4a5560,
     ground: 0xe8e4dc,
-    overlay: 0xf59e0b, // amber module lines
+    overlay: 0xf59e0b, // amber module edges
   },
   printed: {
-    externalWall: 0xcfc8bc, // concrete grey-beige
-    internalWall: 0xd8d4cc,
-    roof: 0x4a4640,
+    externalWall: 0xbcae98, // raw concrete grey-beige
+    internalWall: 0xc8bda8,
+    roof: 0x3f3a33,
     ground: 0xe4e0d8,
-    overlay: 0x3b82f6, // blue
+    overlay: 0x2563eb, // blue
   },
 };
 
@@ -193,9 +193,10 @@ function wallMidpoint(wall: Wall): Point2D {
 const PANEL_WIDTH_M = 2.4; // AU-standard structural panel width
 
 /**
- * Vertical seam strips at panel-width intervals on every external wall.
- * Rendered as thin dark BoxGeometry strips sitting flush with the wall's
- * outside face.
+ * Panel expression for the panelised system: every external wall is read as a
+ * row of flat-pack panels. We draw VERTICAL seams at panel-width intervals plus
+ * HORIZONTAL rails at the base, mid and head of the wall, so the wall clearly
+ * reads as discrete factory panels rather than a continuous surface.
  */
 function buildPanelSeams(
   layout: SpatialLayout,
@@ -203,10 +204,11 @@ function buildPanelSeams(
 ): THREE.Group {
   const group = new THREE.Group();
   const seamMaterial = new THREE.MeshBasicMaterial({
-    color: 0x2a2a2a,
+    color: 0x3a3a40,
     transparent: true,
-    opacity: 0.55,
+    opacity: 0.85,
   });
+  const SEAM_W = 0.05; // visible groove width
 
   for (const wall of layout.walls) {
     if (wall.type !== "external") continue;
@@ -216,24 +218,29 @@ function buildPanelSeams(
     const angle = wallAngle(wall);
     const mid = wallMidpoint(wall);
     const wallH = wall.height_m && wall.height_m > 0 ? wall.height_m : wallHeight;
+    const seamThickness = (wall.thickness || 0.09) + 0.04;
+    const dirX = Math.cos(angle);
+    const dirZ = Math.sin(angle);
 
-    const seamCount = Math.max(1, Math.floor(len / PANEL_WIDTH_M));
+    // Vertical panel joints every PANEL_WIDTH_M
+    const seamCount = Math.max(1, Math.round(len / PANEL_WIDTH_M));
     const seamSpacing = len / seamCount;
-
     for (let i = 1; i < seamCount; i++) {
       const t = i * seamSpacing - len / 2;
-      // Seam is a thin strip 2cm wide × wall height × slightly thicker than wall
-      const seamThickness = (wall.thickness || 0.09) + 0.03;
-      const geo = new THREE.BoxGeometry(0.025, wallH * 0.96, seamThickness);
+      const geo = new THREE.BoxGeometry(SEAM_W, wallH * 0.98, seamThickness);
       const seam = new THREE.Mesh(geo, seamMaterial);
-      // Position relative to wall mid, offset by t along the wall direction
-      seam.position.set(
-        mid.x + Math.cos(angle) * t,
-        wallH / 2,
-        mid.y + Math.sin(angle) * t,
-      );
+      seam.position.set(mid.x + dirX * t, wallH / 2, mid.y + dirZ * t);
       seam.rotation.y = -angle;
       group.add(seam);
+    }
+
+    // Horizontal rails (base / mid / head) — a thin strip spanning the wall.
+    for (const yFrac of [0.02, 0.5, 0.98]) {
+      const geo = new THREE.BoxGeometry(len, SEAM_W, seamThickness);
+      const rail = new THREE.Mesh(geo, seamMaterial);
+      rail.position.set(mid.x, wallH * yFrac, mid.y);
+      rail.rotation.y = -angle;
+      group.add(rail);
     }
   }
 
@@ -241,62 +248,65 @@ function buildPanelSeams(
 }
 
 /**
- * Module wireframe overlays — divides the building footprint into a grid of
- * ≈MODULE_W × MODULE_D cells and draws each cell as a translucent coloured
- * line box at wall height. Communicates "the building is partitioned into
- * factory modules".
+ * Module boxes — the volumetric system is read as a set of fully-formed boxes
+ * craned into place. We divide the footprint into ≈MODULE_W × MODULE_D cells
+ * and render each as a SOLID shaded box, slightly inset so a visible gap (the
+ * inter-module joint) shows between neighbours, with a bold accent edge frame.
+ * This reads unmistakably as "transportable boxes", not a continuous shell.
  */
-const MODULE_W = 3.0;
+const MODULE_W = 3.6; // road-transportable module width
 const MODULE_D = 6.0;
+const MODULE_GAP = 0.18; // visible joint between modules
 
-function buildModuleWireframes(
+function buildModuleBoxes(
   layout: SpatialLayout,
   wallHeight: number,
+  skinColor: number,
   accent: number,
 ): THREE.Group {
   const group = new THREE.Group();
   const { width, depth } = layout.bounds;
 
-  // Decide grid orientation: longer side gets MODULE_D
+  // Longer side gets the long module dimension
   const cellW = width >= depth ? MODULE_D : MODULE_W;
   const cellD = width >= depth ? MODULE_W : MODULE_D;
-
   const cols = Math.max(1, Math.round(width / cellW));
   const rows = Math.max(1, Math.round(depth / cellD));
   const actualW = width / cols;
   const actualD = depth / rows;
+  const boxH = wallHeight + 0.25; // module incl. floor/ceiling cassette
 
-  const lineMaterial = new THREE.LineBasicMaterial({
-    color: accent,
+  const skinMaterial = new THREE.MeshStandardMaterial({
+    color: skinColor,
+    roughness: 0.6,
+    metalness: 0.15,
     transparent: true,
-    opacity: 0.7,
+    opacity: 0.5, // see the interior walls through the module skin
   });
-  const fillMaterial = new THREE.MeshBasicMaterial({
+  const edgeMaterial = new THREE.LineBasicMaterial({
     color: accent,
     transparent: true,
-    opacity: 0.06,
-    side: THREE.DoubleSide,
+    opacity: 0.95,
   });
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      const x = c * actualW;
-      const z = r * actualD;
-      // Edge box at wall height
-      const edges = new THREE.EdgesGeometry(
-        new THREE.BoxGeometry(actualW, wallHeight + 0.2, actualD),
-      );
-      const wire = new THREE.LineSegments(edges, lineMaterial);
-      wire.position.set(x + actualW / 2, (wallHeight + 0.2) / 2, z + actualD / 2);
-      group.add(wire);
+      const w = actualW - MODULE_GAP;
+      const d = actualD - MODULE_GAP;
+      const cx = c * actualW + actualW / 2;
+      const cz = r * actualD + actualD / 2;
 
-      // Translucent fill so modules read as bounded volumes
-      const fill = new THREE.Mesh(
-        new THREE.BoxGeometry(actualW * 0.98, wallHeight + 0.18, actualD * 0.98),
-        fillMaterial,
+      const boxGeo = new THREE.BoxGeometry(w, boxH, d);
+      const box = new THREE.Mesh(boxGeo, skinMaterial);
+      box.position.set(cx, boxH / 2, cz);
+      group.add(box);
+
+      const frame = new THREE.LineSegments(
+        new THREE.EdgesGeometry(boxGeo),
+        edgeMaterial,
       );
-      fill.position.set(x + actualW / 2, (wallHeight + 0.18) / 2, z + actualD / 2);
-      group.add(fill);
+      frame.position.set(cx, boxH / 2, cz);
+      group.add(frame);
     }
   }
 
@@ -335,6 +345,51 @@ function getPrintLayerTexture(): THREE.CanvasTexture | null {
   // Multiplied per-mesh below based on wall length.
   printTextureCache = tex;
   return tex;
+}
+
+/**
+ * Print layer ridges — horizontal bands wrapped around every external wall at a
+ * regular layer pitch, each protruding slightly proud of the wall face. Reads
+ * as extruded concrete printed bead-by-bead. Geometry-level (not just texture)
+ * so the striations survive at any zoom and on the silhouette.
+ */
+const PRINT_LAYER_PITCH_M = 0.18; // visible layer height
+
+function buildPrintLayers(
+  layout: SpatialLayout,
+  wallHeight: number,
+  color: number,
+): THREE.Group {
+  const group = new THREE.Group();
+  const ridgeMaterial = new THREE.MeshStandardMaterial({
+    color,
+    roughness: 0.95,
+    metalness: 0.0,
+  });
+
+  for (const wall of layout.walls) {
+    if (wall.type !== "external") continue;
+    const len = wallLength(wall);
+    if (len < 0.3) continue;
+    const angle = wallAngle(wall);
+    const mid = wallMidpoint(wall);
+    const wallH = wall.height_m && wall.height_m > 0 ? wall.height_m : wallHeight;
+    const thickness = (wall.thickness || 0.12) + 0.05; // proud of the face
+
+    const layers = Math.max(2, Math.floor(wallH / PRINT_LAYER_PITCH_M));
+    for (let i = 0; i < layers; i++) {
+      // Alternate bands slightly taller so the ridges catch the light
+      const bandH = PRINT_LAYER_PITCH_M * (i % 2 === 0 ? 0.6 : 0.4);
+      const y = (i + 0.5) * (wallH / layers);
+      const geo = new THREE.BoxGeometry(len, bandH, thickness);
+      const ridge = new THREE.Mesh(geo, ridgeMaterial);
+      ridge.position.set(mid.x, y, mid.y);
+      ridge.rotation.y = -angle;
+      group.add(ridge);
+    }
+  }
+
+  return group;
 }
 
 // ----------------------------------------------------------------------------
@@ -457,7 +512,16 @@ export function buildFloorPlan3DForSystem(
   if (system === "panelised") {
     group.add(buildPanelSeams(layout, wallHeight));
   } else if (system === "volumetric") {
-    group.add(buildModuleWireframes(layout, wallHeight, PALETTES.volumetric.overlay));
+    group.add(
+      buildModuleBoxes(
+        layout,
+        wallHeight,
+        PALETTES.volumetric.externalWall,
+        PALETTES.volumetric.overlay,
+      ),
+    );
+  } else if (system === "printed") {
+    group.add(buildPrintLayers(layout, wallHeight, PALETTES.printed.externalWall));
   }
 
   return group;
