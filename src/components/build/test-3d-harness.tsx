@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Loader2, FileText, Image as ImageIcon } from "lucide-react";
 import { PlanComparison3D } from "./plan-comparison-3d";
 import { SystemExplorerView } from "./system-explorer-view";
-import { VolumetricBuildSequence } from "./volumetric-build-sequence";
+import { BuildSequence } from "./build-sequence";
 import {
   enqueueTest3D,
   getTest3DStatus,
@@ -544,7 +544,7 @@ export function Test3DHarness() {
               {viewMode === "system-explorer" ? (
                 <SystemExplorerView layout={result.layout} />
               ) : viewMode === "build-sequence" ? (
-                <VolumetricBuildSequence layout={result.layout} />
+                <BuildSequence layout={result.layout} />
               ) : (
                 <PlanComparison3D layout={result.layout} suggestions={[]} />
               )}

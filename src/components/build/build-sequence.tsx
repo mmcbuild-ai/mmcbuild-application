@@ -1,0 +1,798 @@
+"use client";
+
+/**
+ * SPIKE — multi-system build-sequence storyboard.
+ *
+ * Shows the *build process as an action* for each construction system, on the
+ * same extracted footprint:
+ *   - Volumetric  — finished modules craned onto the slab in sequence
+ *   - Panelised   — flat-pack wall panels tilted up on the footings
+ *   - Printed     — concrete walls extruded layer-by-layer under a gantry
+ *   - Traditional — brick veneer over a timber frame (frame first, then skin)
+ *                   OR double-brick / blockwork (courses stacked up)
+ *
+ * Shared spine per system: site set-out → slab/footings → [system assembly] →
+ * roof/stitch → finish. Pick the system (and Traditional wall type) with the
+ * selector; Play / scrub the timeline.
+ *
+ * Dev-only, mounted on /build/test-3d ("Build Sequence" tab). Verify by eye.
+ */
+
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Canvas } from "@react-three/fiber";
+import {
+  OrbitControls,
+  PerspectiveCamera,
+  Environment,
+  ContactShadows,
+} from "@react-three/drei";
+import * as THREE from "three";
+import {
+  computeModulePlacements,
+  type ModulePlacement,
+  type MMCSystem,
+} from "@/lib/build/system-renderer";
+import type { SpatialLayout } from "@/lib/build/spatial/types";
+
+// Defined locally so this component is independent of the (separate) masonry-
+// toggle PR; identical to the system-renderer export it will eventually share.
+type TraditionalVariant = "brick-veneer" | "masonry";
+
+const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+
+// Per-system palettes (match the static System Explorer renders)
+const COLORS = {
+  veneerBrick: "#b0704a",
+  masonryBlock: "#b8b3a8",
+  masonryCourse: "#8a8378",
+  timber: "#9a6b3f",
+  panel: "#f2efe9",
+  panelSeam: "#3a3a40",
+  moduleSkin: 0xb9c4cf,
+  moduleEdge: "#f59e0b",
+  concrete: "#bcae98",
+  concreteRidge: "#9a8e78",
+  roof: "#3f4651",
+  slab: "#cfc8bc",
+  deck: "#b07a43",
+};
+
+// ----------------------------------------------------------------------------
+// Geometry helpers
+// ----------------------------------------------------------------------------
+
+interface WallSeg {
+  id: number;
+  cx: number;
+  cz: number;
+  len: number;
+  angle: number;
+  height: number;
+  thickness: number;
+}
+
+function externalWallSegs(layout: SpatialLayout, wallHeight: number): WallSeg[] {
+  return layout.walls
+    .filter((w) => w.type === "external")
+    .map((w, i) => {
+      const len = Math.hypot(w.end.x - w.start.x, w.end.y - w.start.y);
+      const angle = Math.atan2(w.end.y - w.start.y, w.end.x - w.start.x);
+      return {
+        id: i,
+        cx: (w.start.x + w.end.x) / 2,
+        cz: (w.start.y + w.end.y) / 2,
+        len,
+        angle,
+        height: w.height_m && w.height_m > 0 ? w.height_m : wallHeight,
+        thickness: w.thickness || 0.12,
+      };
+    })
+    .filter((s) => s.len > 0.3);
+}
+
+// ----------------------------------------------------------------------------
+// Phase model
+// ----------------------------------------------------------------------------
+
+interface PhaseDef {
+  id: string;
+  label: string;
+  w: number;
+}
+interface PhaseWindow extends PhaseDef {
+  index: number;
+  start: number;
+  end: number;
+}
+
+function phaseDefsFor(system: MMCSystem, variant: TraditionalVariant): PhaseDef[] {
+  const site: PhaseDef = { id: "site", label: "Site prep & set-out", w: 1 };
+  const finish: PhaseDef = { id: "finish", label: "External finish", w: 1 };
+
+  if (system === "volumetric")
+    return [
+      site,
+      { id: "slab", label: "Slab & service stubs", w: 1 },
+      { id: "setup", label: "Crane set-up & delivery", w: 0.6 },
+      { id: "assemble", label: "Crane in modules", w: 1.5 },
+      { id: "roof", label: "Stitch & weatherproof", w: 1 },
+      finish,
+    ];
+  if (system === "panelised")
+    return [
+      site,
+      { id: "slab", label: "Footings & slab", w: 1 },
+      { id: "setup", label: "Panel delivery", w: 0.6 },
+      { id: "assemble", label: "Tilt up wall panels", w: 1.5 },
+      { id: "roof", label: "Roof & seal joints", w: 1 },
+      finish,
+    ];
+  if (system === "printed")
+    return [
+      site,
+      { id: "slab", label: "Slab", w: 1 },
+      { id: "setup", label: "Printer gantry set-up", w: 0.6 },
+      { id: "assemble", label: "Print walls layer by layer", w: 1.8 },
+      { id: "roof", label: "Roof & finishing", w: 1 },
+      finish,
+    ];
+  // traditional
+  if (variant === "masonry")
+    return [
+      site,
+      { id: "slab", label: "Footings", w: 1 },
+      { id: "assemble", label: "Lay block courses", w: 1.8 },
+      { id: "roof", label: "Roof", w: 1 },
+      finish,
+    ];
+  // traditional brick veneer over timber frame
+  return [
+    site,
+    { id: "slab", label: "Slab", w: 1 },
+    { id: "frame", label: "Erect timber frame", w: 1.2 },
+    { id: "assemble", label: "Lay brick veneer", w: 1.4 },
+    { id: "roof", label: "Roof", w: 1 },
+    finish,
+  ];
+}
+
+function buildPhases(defs: PhaseDef[]): PhaseWindow[] {
+  const total = defs.reduce((s, d) => s + d.w, 0);
+  let acc = 0;
+  return defs.map((d, i) => {
+    const start = acc / total;
+    acc += d.w;
+    return { ...d, index: i, start, end: acc / total };
+  });
+}
+
+function win(phases: PhaseWindow[], id: string) {
+  return phases.find((p) => p.id === id);
+}
+function localT(phases: PhaseWindow[], progress: number, id: string): number {
+  const w = win(phases, id);
+  if (!w) return 0;
+  return clamp01((progress - w.start) / (w.end - w.start));
+}
+function reached(phases: PhaseWindow[], progress: number, id: string): boolean {
+  const w = win(phases, id);
+  return w ? progress >= w.start : false;
+}
+
+// ----------------------------------------------------------------------------
+// Animated element primitives
+// ----------------------------------------------------------------------------
+
+/** Volumetric module — craned down from above. */
+function ModuleBox({ placement, t }: { placement: ModulePlacement; t: number }) {
+  const skinMat = useMemo(
+    () =>
+      new THREE.MeshStandardMaterial({
+        color: COLORS.moduleSkin,
+        roughness: 0.6,
+        metalness: 0.15,
+        transparent: true,
+        opacity: 0.6,
+      }),
+    [],
+  );
+  const geo = useMemo(
+    () => new THREE.BoxGeometry(placement.w, placement.boxH, placement.d),
+    [placement.w, placement.boxH, placement.d],
+  );
+  const edges = useMemo(() => new THREE.EdgesGeometry(geo), [geo]);
+  if (t <= 0) return null;
+  const ease = easeOutCubic(t);
+  const remaining = (1 - ease) * placement.boxH * 6;
+  const active = t > 0 && t < 1;
+  return (
+    <group position={[placement.cx, placement.boxH / 2 + remaining, placement.cz]}>
+      <mesh geometry={geo} material={skinMat} castShadow />
+      <lineSegments geometry={edges}>
+        <lineBasicMaterial color={active ? "#ffffff" : COLORS.moduleEdge} />
+      </lineSegments>
+    </group>
+  );
+}
+
+/** A wall panel that rises up from the slab into place (panelised). */
+function RisePanel({
+  seg,
+  offset,
+  width,
+  t,
+}: {
+  seg: WallSeg;
+  offset: number;
+  width: number;
+  t: number;
+}) {
+  if (t <= 0) return null;
+  const ease = easeOutCubic(t);
+  const dirX = Math.cos(seg.angle);
+  const dirZ = Math.sin(seg.angle);
+  const cx = seg.cx + dirX * offset;
+  const cz = seg.cz + dirZ * offset;
+  const y = seg.height / 2 - (1 - ease) * seg.height * 1.1; // rises from below
+  const active = t > 0 && t < 1;
+  return (
+    <group position={[cx, y, cz]} rotation={[0, -seg.angle, 0]}>
+      <mesh castShadow>
+        <boxGeometry args={[width, seg.height, seg.thickness + 0.02]} />
+        <meshStandardMaterial color={COLORS.panel} roughness={0.75} />
+      </mesh>
+      {/* panel seam edges */}
+      <lineSegments>
+        <edgesGeometry
+          args={[new THREE.BoxGeometry(width, seg.height, seg.thickness + 0.02)]}
+        />
+        <lineBasicMaterial color={active ? "#ffffff" : COLORS.panelSeam} />
+      </lineSegments>
+    </group>
+  );
+}
+
+/** A wall that grows upward from its base (printed / masonry). */
+function GrowWall({
+  seg,
+  t,
+  color,
+  courseColor,
+  coursePitch,
+}: {
+  seg: WallSeg;
+  t: number;
+  color: string;
+  courseColor?: string;
+  coursePitch?: number;
+}) {
+  if (t <= 0) return null;
+  const h = Math.max(0.01, seg.height * easeOutCubic(t));
+  const courses: number[] = [];
+  if (courseColor && coursePitch) {
+    for (let y = coursePitch; y < h; y += coursePitch) courses.push(y);
+  }
+  return (
+    <group position={[seg.cx, 0, seg.cz]} rotation={[0, -seg.angle, 0]}>
+      <mesh position={[0, h / 2, 0]} castShadow>
+        <boxGeometry args={[seg.len, h, seg.thickness]} />
+        <meshStandardMaterial color={color} roughness={0.9} />
+      </mesh>
+      {courses.map((y, i) => (
+        <mesh key={i} position={[0, y, 0]}>
+          <boxGeometry args={[seg.len, 0.02, seg.thickness + 0.03]} />
+          <meshStandardMaterial color={courseColor!} roughness={0.95} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+/** Timber frame studs along a wall, growing up (traditional veneer). */
+function FrameWall({ seg, t }: { seg: WallSeg; t: number }) {
+  const mat = useMemoTimber();
+  if (t <= 0) return null;
+  const h = seg.height * easeOutCubic(t);
+  const studs = Math.max(2, Math.round(seg.len / 0.6));
+  return (
+    <group position={[seg.cx, 0, seg.cz]} rotation={[0, -seg.angle, 0]}>
+      {Array.from({ length: studs + 1 }, (_, k) => {
+        const x = (k / studs) * seg.len - seg.len / 2;
+        return (
+          <mesh key={k} position={[x, h / 2, 0]} material={mat}>
+            <boxGeometry args={[0.05, h, seg.thickness]} />
+          </mesh>
+        );
+      })}
+      {/* top plate */}
+      <mesh position={[0, h, 0]} material={mat}>
+        <boxGeometry args={[seg.len, 0.06, seg.thickness]} />
+      </mesh>
+    </group>
+  );
+}
+function useMemoTimber() {
+  return useMemo(
+    () => new THREE.MeshStandardMaterial({ color: COLORS.timber, roughness: 0.85 }),
+    [],
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Scene
+// ----------------------------------------------------------------------------
+
+function Scene({
+  layout,
+  system,
+  variant,
+  progress,
+  phases,
+}: {
+  layout: SpatialLayout;
+  system: MMCSystem;
+  variant: TraditionalVariant;
+  progress: number;
+  phases: PhaseWindow[];
+}) {
+  const { width, depth } = layout.bounds;
+  const wallHeight = layout.wall_height || 2.4;
+  const maxDim = Math.max(width, depth);
+  const camDist = maxDim * 1.8;
+
+  const placements = useMemo(
+    () => computeModulePlacements(layout, wallHeight),
+    [layout, wallHeight],
+  );
+  const segs = useMemo(
+    () => externalWallSegs(layout, wallHeight),
+    [layout, wallHeight],
+  );
+
+  const slabShown = reached(phases, progress, "slab");
+  const slabT = easeOutCubic(localT(phases, progress, "slab"));
+  const outlineT = 1 - slabT;
+  const assembleT = localT(phases, progress, "assemble");
+  const frameT = localT(phases, progress, "frame");
+  const roofShown = reached(phases, progress, "roof");
+  const roofT = easeOutCubic(localT(phases, progress, "roof"));
+  const finishT = easeOutCubic(localT(phases, progress, "finish"));
+
+  const groundColor = useMemo(
+    () => new THREE.Color("#e8e4dc").lerp(new THREE.Color("#cfe3c4"), finishT),
+    [finishT],
+  );
+
+  // Per-element stagger within the assemble phase
+  const elemT = (i: number, count: number) =>
+    clamp01(assembleT * count - i);
+
+  const showCrane =
+    system === "volumetric" &&
+    reached(phases, progress, "setup") &&
+    !reached(phases, progress, "finish");
+  const showPrinter =
+    system === "printed" &&
+    reached(phases, progress, "setup") &&
+    !reached(phases, progress, "roof");
+
+  return (
+    <Canvas shadows dpr={[1, 1.5]} gl={{ antialias: true }}>
+      <Suspense fallback={null}>
+        <PerspectiveCamera
+          makeDefault
+          position={[camDist, camDist * 0.85, camDist]}
+          fov={42}
+        />
+        <OrbitControls
+          enableDamping
+          dampingFactor={0.1}
+          maxPolarAngle={Math.PI / 2.1}
+          minDistance={maxDim * 0.5}
+          maxDistance={camDist * 3}
+          target={[0, maxDim * 0.12, 0]}
+        />
+        <ambientLight intensity={0.4} />
+        <directionalLight
+          position={[maxDim * 1.2, maxDim * 2, maxDim * 0.6]}
+          intensity={1.0}
+          castShadow
+          shadow-mapSize-width={1024}
+          shadow-mapSize-height={1024}
+        />
+        <directionalLight
+          position={[-maxDim, maxDim * 1.5, -maxDim * 0.6]}
+          intensity={0.25}
+        />
+        <Environment preset="city" />
+        <ContactShadows
+          position={[0, 0.004, 0]}
+          opacity={0.4}
+          scale={maxDim * 3}
+          blur={2.5}
+          far={maxDim}
+          resolution={512}
+        />
+
+        {/* Ground */}
+        <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+          <planeGeometry args={[maxDim * 3.5, maxDim * 3.5]} />
+          <meshStandardMaterial
+            color={`#${groundColor.getHexString()}`}
+            roughness={1}
+          />
+        </mesh>
+
+        {/* Everything in layout space, centred */}
+        <group position={[-width / 2, 0, -depth / 2]}>
+          {/* Set-out tape (fades as slab arrives) */}
+          {!reached(phases, progress, "assemble") && outlineT > 0.01 && (
+            <group>
+              {[
+                { x: width / 2, z: 0, w: width, d: 0.08 },
+                { x: width / 2, z: depth, w: width, d: 0.08 },
+                { x: 0, z: depth / 2, w: 0.08, d: depth },
+                { x: width, z: depth / 2, w: 0.08, d: depth },
+              ].map((s, i) => (
+                <mesh key={i} position={[s.x, 0.02, s.z]}>
+                  <boxGeometry args={[s.w, 0.02, s.d]} />
+                  <meshBasicMaterial color="#d8a24a" transparent opacity={outlineT * 0.9} />
+                </mesh>
+              ))}
+            </group>
+          )}
+
+          {/* Slab / footings */}
+          {slabShown && (
+            <mesh position={[width / 2, -0.075, depth / 2]} receiveShadow>
+              <boxGeometry args={[width + 0.6, 0.15, depth + 0.6]} />
+              <meshStandardMaterial
+                color={COLORS.slab}
+                roughness={0.95}
+                transparent
+                opacity={slabT}
+              />
+            </mesh>
+          )}
+
+          {/* Service stubs (volumetric + panelised) */}
+          {slabShown &&
+            (system === "volumetric" || system === "panelised") &&
+            placements.map((p, i) => (
+              <mesh key={`stub-${i}`} position={[p.cx, 0.15, p.cz]}>
+                <cylinderGeometry args={[0.06, 0.06, 0.3, 8]} />
+                <meshStandardMaterial color="#2b6cb0" />
+              </mesh>
+            ))}
+
+          {/* ---- System assembly ---- */}
+          {system === "volumetric" &&
+            placements.map((p, i) => (
+              <ModuleBox key={`mod-${i}`} placement={p} t={elemT(i, placements.length)} />
+            ))}
+
+          {system === "panelised" &&
+            segs.flatMap((seg) => {
+              const n = Math.max(1, Math.round(seg.len / 2.4));
+              const pw = seg.len / n;
+              return Array.from({ length: n }, (_, k) => ({
+                seg,
+                offset: (k + 0.5) * pw - seg.len / 2,
+                width: pw - 0.04,
+                key: `${seg.id}-${k}`,
+              }));
+            }).map((panel, idx, arr) => (
+              <RisePanel
+                key={panel.key}
+                seg={panel.seg}
+                offset={panel.offset}
+                width={panel.width}
+                t={elemT(idx, arr.length)}
+              />
+            ))}
+
+          {system === "printed" &&
+            segs.map((seg) => (
+              <GrowWall
+                key={`pr-${seg.id}`}
+                seg={seg}
+                t={assembleT}
+                color={COLORS.concrete}
+                courseColor={COLORS.concreteRidge}
+                coursePitch={0.18}
+              />
+            ))}
+
+          {system === "traditional" && variant === "masonry" &&
+            segs.map((seg) => (
+              <GrowWall
+                key={`ma-${seg.id}`}
+                seg={seg}
+                t={assembleT}
+                color={COLORS.masonryBlock}
+                courseColor={COLORS.masonryCourse}
+                coursePitch={0.2}
+              />
+            ))}
+
+          {system === "traditional" && variant === "brick-veneer" && (
+            <>
+              {segs.map((seg) => (
+                <FrameWall key={`fr-${seg.id}`} seg={seg} t={frameT} />
+              ))}
+              {segs.map((seg) => (
+                <GrowWall
+                  key={`bv-${seg.id}`}
+                  seg={seg}
+                  t={assembleT}
+                  color={COLORS.veneerBrick}
+                />
+              ))}
+            </>
+          )}
+
+          {/* Roof (all systems) */}
+          {roofShown && (
+            <mesh position={[width / 2, wallHeight + 0.2, depth / 2]} castShadow>
+              <boxGeometry args={[width + 0.3, 0.14, depth + 0.3]} />
+              <meshStandardMaterial
+                color={COLORS.roof}
+                roughness={0.7}
+                metalness={0.2}
+                transparent
+                opacity={roofT}
+              />
+            </mesh>
+          )}
+
+          {/* Finish: entry deck */}
+          {reached(phases, progress, "finish") && (
+            <mesh position={[width / 2, 0.1, depth + 0.7]}>
+              <boxGeometry args={[Math.min(2.4, width * 0.5), 0.2, 1.2]} />
+              <meshStandardMaterial color={COLORS.deck} roughness={0.8} transparent opacity={finishT} />
+            </mesh>
+          )}
+
+          {/* Crane (volumetric) */}
+          {showCrane && (
+            <group position={[width + 1.6, 0, depth * 0.5]}>
+              <mesh position={[0, wallHeight * 1.8, 0]}>
+                <boxGeometry args={[0.22, wallHeight * 3.6, 0.22]} />
+                <meshStandardMaterial color="#555c63" metalness={0.3} roughness={0.6} />
+              </mesh>
+              <mesh position={[-width * 0.4, wallHeight * 3.4, 0]}>
+                <boxGeometry args={[width * 0.9, 0.16, 0.16]} />
+                <meshStandardMaterial color="#555c63" metalness={0.3} roughness={0.6} />
+              </mesh>
+            </group>
+          )}
+
+          {/* Printer gantry (printed) — rises with the print */}
+          {showPrinter && (
+            <group
+              position={[
+                width / 2,
+                0.2 + wallHeight * easeOutCubic(assembleT) + 0.4,
+                depth / 2,
+              ]}
+            >
+              <mesh>
+                <boxGeometry args={[width + 0.8, 0.12, 0.12]} />
+                <meshStandardMaterial color="#445" metalness={0.4} roughness={0.5} />
+              </mesh>
+              <mesh rotation={[0, Math.PI / 2, 0]}>
+                <boxGeometry args={[depth + 0.8, 0.12, 0.12]} />
+                <meshStandardMaterial color="#445" metalness={0.4} roughness={0.5} />
+              </mesh>
+            </group>
+          )}
+        </group>
+      </Suspense>
+    </Canvas>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Component
+// ----------------------------------------------------------------------------
+
+const SYSTEM_OPTIONS: { id: MMCSystem; label: string }[] = [
+  { id: "traditional", label: "Traditional" },
+  { id: "panelised", label: "Panelised" },
+  { id: "volumetric", label: "Volumetric" },
+  { id: "printed", label: "3D-printed" },
+];
+
+export function BuildSequence({ layout }: { layout: SpatialLayout }) {
+  const [system, setSystem] = useState<MMCSystem>("volumetric");
+  const [variant, setVariant] = useState<TraditionalVariant>("brick-veneer");
+
+  const phases = useMemo(
+    () => buildPhases(phaseDefsFor(system, variant)),
+    [system, variant],
+  );
+
+  const [progress, setProgress] = useState(0);
+  const [playing, setPlaying] = useState(true);
+  const progressRef = useRef(0);
+  const lastTsRef = useRef<number | null>(null);
+
+  const durationMs = Math.max(9000, phases.length * 1700);
+
+  const setProgressBoth = (v: number) => {
+    progressRef.current = v;
+    setProgress(v);
+  };
+
+  // Restart the timeline when switching system/variant (done in the handlers,
+  // not an effect, to avoid synchronous setState-in-effect).
+  const restart = () => {
+    lastTsRef.current = null;
+    setProgressBoth(0);
+    setPlaying(true);
+  };
+  const selectSystem = (s: MMCSystem) => {
+    setSystem(s);
+    restart();
+  };
+  const selectVariant = (v: TraditionalVariant) => {
+    setVariant(v);
+    restart();
+  };
+
+  useEffect(() => {
+    if (!playing) {
+      lastTsRef.current = null;
+      return;
+    }
+    let raf = 0;
+    const tick = (ts: number) => {
+      if (lastTsRef.current == null) lastTsRef.current = ts;
+      const dt = ts - lastTsRef.current;
+      lastTsRef.current = ts;
+      const np = Math.min(1, progressRef.current + dt / durationMs);
+      progressRef.current = np;
+      setProgress(np);
+      if (np >= 1) {
+        setPlaying(false);
+        return;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, durationMs]);
+
+  const current = phases.find((p) => progress < p.end) ?? phases[phases.length - 1];
+  const atEnd = progress >= 1;
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+        <p className="font-medium">
+          Build sequence — watch each system go up as a process
+        </p>
+        <p className="mt-1">
+          Same footprint, built five ways. Pick a system below; Traditional has a
+          brick-veneer / double-brick toggle. Set-out → slab/footings →
+          assembly (modules craned · panels tilted up · concrete printed · frame
+          + brick · block courses) → roof → finish. Orbit, Play, or scrub.
+        </p>
+      </div>
+
+      {/* System selector */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex rounded-md border bg-zinc-50 p-0.5 text-xs">
+          {SYSTEM_OPTIONS.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => selectSystem(s.id)}
+              className={`rounded px-2.5 py-1 transition-colors ${
+                system === s.id
+                  ? "bg-white shadow-sm font-medium text-zinc-900"
+                  : "text-zinc-600 hover:text-zinc-900"
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+        {system === "traditional" && (
+          <div className="inline-flex rounded-md border bg-white p-0.5 text-[11px]">
+            {(
+              [
+                ["brick-veneer", "Brick veneer / timber frame"],
+                ["masonry", "Double brick / block"],
+              ] as [TraditionalVariant, string][]
+            ).map(([v, label]) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => selectVariant(v)}
+                className={`rounded px-2 py-0.5 transition-colors ${
+                  variant === v
+                    ? "bg-zinc-900 text-white"
+                    : "text-zinc-600 hover:text-zinc-900"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="h-[480px] overflow-hidden rounded-lg border bg-gradient-to-b from-sky-100 to-white">
+        <Scene
+          layout={layout}
+          system={system}
+          variant={variant}
+          progress={progress}
+          phases={phases}
+        />
+      </div>
+
+      {/* Phase label + segmented timeline */}
+      <div className="space-y-1.5">
+        <p className="text-xs font-medium text-zinc-700">
+          Phase {current.index + 1} / {phases.length} —{" "}
+          <span className="text-amber-700">{current.label}</span>
+        </p>
+        <div className="flex gap-1">
+          {phases.map((p) => {
+            const fill = clamp01((progress - p.start) / (p.end - p.start));
+            return (
+              <div
+                key={p.id}
+                className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-200"
+                title={p.label}
+              >
+                <div
+                  className="h-full rounded-full bg-amber-500 transition-[width] duration-100"
+                  style={{ width: `${fill * 100}%` }}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-zinc-50 px-4 py-3 text-sm">
+        <button
+          type="button"
+          onClick={() => {
+            if (atEnd) setProgressBoth(0);
+            setPlaying((p) => !p);
+          }}
+          className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700"
+        >
+          {playing ? "Pause" : atEnd ? "Replay" : "Play"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setPlaying(false);
+            setProgressBoth(0);
+          }}
+          className="rounded-md border px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
+        >
+          Reset
+        </button>
+        <input
+          type="range"
+          min={0}
+          max={1000}
+          value={Math.round(progress * 1000)}
+          onChange={(e) => {
+            setPlaying(false);
+            setProgressBoth(Number(e.target.value) / 1000);
+          }}
+          className="h-1.5 flex-1 min-w-[160px] cursor-pointer accent-amber-500"
+          aria-label="Build sequence progress"
+        />
+      </div>
+    </div>
+  );
+}
