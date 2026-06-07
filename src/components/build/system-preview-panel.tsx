@@ -1,13 +1,22 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { Layers, Loader2, AlertCircle } from "lucide-react";
+import { Layers, Loader2, AlertCircle, PlayCircle, Box } from "lucide-react";
 import { BuildSequence } from "./build-sequence";
+import { SystemExplorerView } from "./system-explorer-view";
+import { PlanComparison3D } from "./plan-comparison-3d";
 import { startProjectSystemPreview } from "@/app/(dashboard)/build/actions";
 import { getTest3DStatus } from "@/app/(dashboard)/build/test-3d/actions";
 import type { SpatialLayout } from "@/lib/build/spatial";
 
 type Phase = "idle" | "working" | "ready" | "error";
+type ViewMode = "build-sequence" | "system-explorer" | "plan-comparison";
+
+const PREVIEW_VIEWS: Array<{ key: ViewMode; label: string; Icon: typeof Box }> = [
+  { key: "build-sequence", label: "Build Sequence", Icon: PlayCircle },
+  { key: "system-explorer", label: "Compare Systems", Icon: Layers },
+  { key: "plan-comparison", label: "Standard Model", Icon: Box },
+];
 
 /**
  * Pre-selection build-sequence preview for the project Build page.
@@ -22,6 +31,7 @@ export function SystemPreviewPanel({ planId }: { planId: string }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [layout, setLayout] = useState<SpatialLayout | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<ViewMode>("build-sequence");
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const poll = useCallback((jobId: string) => {
@@ -131,7 +141,37 @@ export function SystemPreviewPanel({ planId }: { planId: string }) {
 
       {phase === "ready" && layout && (
         <div className="border-t p-4">
-          <BuildSequence layout={layout} />
+          <div role="tablist" aria-label="Preview view" className="flex flex-wrap gap-2">
+            {PREVIEW_VIEWS.map(({ key, label, Icon }) => {
+              const selected = key === view;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => setView(key)}
+                  className={`flex min-h-[44px] items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                    selected
+                      ? "border-teal-600 bg-teal-50 text-teal-700"
+                      : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
+                  }`}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-4">
+            {view === "build-sequence" ? (
+              <BuildSequence layout={layout} />
+            ) : view === "system-explorer" ? (
+              <SystemExplorerView layout={layout} />
+            ) : (
+              <PlanComparison3D layout={layout} suggestions={[]} />
+            )}
+          </div>
         </div>
       )}
     </div>

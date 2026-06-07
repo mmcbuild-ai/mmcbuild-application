@@ -28,12 +28,24 @@ interface SystemSelectionPanelProps {
   hasDownstreamReports: boolean;
 }
 
+const AVAILABLE_SYSTEM_KEYS = CONSTRUCTION_SYSTEMS.filter(
+  (s) => !s.comingSoon,
+).map((s) => s.key);
+
 export function SystemSelectionPanel({
   projectId,
   initialSystems,
   hasDownstreamReports,
 }: SystemSelectionPanelProps) {
-  const [selected, setSelected] = useState<Set<string>>(new Set(initialSystems));
+  // Default to ALL available systems pre-selected when a project has none saved
+  // yet — the new-project default was "none", which read as a dead form. The
+  // saved set stays empty so the "Save Selection" button surfaces, prompting
+  // the user to confirm (or trim) the pre-selection.
+  const initialSelection =
+    initialSystems.length > 0 ? initialSystems : AVAILABLE_SYSTEM_KEYS;
+  const [selected, setSelected] = useState<Set<string>>(
+    new Set(initialSelection),
+  );
   const [saved, setSaved] = useState<Set<string>>(new Set(initialSystems));
   const [isPending, startTransition] = useTransition();
   const [showWarning, setShowWarning] = useState(false);

@@ -229,6 +229,54 @@ export async function setSuggestionDecision(
 // reused (instant + no repeat AI cost). Only the first preview per plan runs
 // the extractor. Poll with getTest3DStatus() from ./test-3d/actions.
 // ---------------------------------------------------------------------------
+// Return a previously-extracted layout for a plan if one exists (from a build-
+// page preview or test-3d run). Used by the report page as a fallback when the
+// inline optimisation extractor returned null — the preview's raster path is
+// more robust on CAD doc-sets, so reusing its result keeps the report's 3D from
+// silently disappearing. Read-only; returns null when nothing is cached.
+export async function getCachedPlanLayout(
+  planId: string,
+): Promise<SpatialLayout | null> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("org_id")
+    .eq("user_id", user.id)
+    .single();
+  if (!profile?.org_id) return null;
+
+  const { data: planRow } = await db()
+    .from("plans")
+    .select("org_id, file_path")
+    .eq("id", planId)
+    .single();
+  const plan = (planRow as unknown as {
+    org_id: string;
+    file_path: string | null;
+  } | null) ?? null;
+  if (!plan || plan.org_id !== profile.org_id || !plan.file_path) return null;
+
+  const { data: doneRow } = await db()
+    .from("test_3d_jobs")
+    .select("result")
+    .eq("org_id", profile.org_id)
+    .eq("storage_path", plan.file_path)
+    .eq("status", "done")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const cached = (doneRow as unknown as
+    | { result: { layout: SpatialLayout | null } | null }
+    | null) ?? null;
+  return cached?.result?.layout ?? null;
+}
+
 export type StartSystemPreviewResult =
   | { layout: SpatialLayout }
   | { jobId: string }
