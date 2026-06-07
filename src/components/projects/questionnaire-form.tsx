@@ -363,7 +363,7 @@ export function QuestionnaireForm({
       setError(result.error);
     } else {
       toast.success("Project created! Head to MMC Comply to run your first assessment.");
-      router.push("/dashboard");
+      router.push(`/projects/${projectId}`);
     }
   };
 

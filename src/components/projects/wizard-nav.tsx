@@ -81,6 +81,11 @@ export function WizardNav({
       return;
     }
     await advanceProjectSetupStep(projectId, 4);
+    // Project is now active — leave the wizard's final step and land on the
+    // project overview (the wizard nav hides itself once the project is no
+    // longer a draft). Staying put (router.refresh) left users stranded on
+    // the questionnaire step after activation.
+    router.push(`/projects/${projectId}`);
     router.refresh();
   }
 
