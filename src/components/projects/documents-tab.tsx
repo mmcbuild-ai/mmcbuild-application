@@ -34,8 +34,35 @@ export function DocumentsTab({ projectId, plans, certifications }: DocumentsTabP
       <div>
         <h2 className="mb-1 text-lg font-semibold">Building Plans</h2>
         <p className="mb-4 text-sm text-muted-foreground">
-          Upload PDF building plans for compliance analysis
+          Upload your architectural plans. MMC Build reads these to reconstruct
+          your design in 3D and run compliance and optimisation analysis.
         </p>
+
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
+          <p className="font-medium text-amber-900">What to upload</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-amber-900">
+            <li>
+              A <strong>complete plan set</strong> — floor plan(s),
+              elevations, and a section. The floor plan is required; elevations
+              and a section let us read roof form and storey heights for an
+              accurate 3D model.
+            </li>
+            <li>
+              A <strong>readable, scaled drawing</strong> — a vector PDF (or
+              DWG / RVT / SKP / DOCX, converted automatically). A scanned or
+              photographed image-only PDF has no geometry we can extract.
+            </li>
+            <li>
+              Up to 50&nbsp;MB. Multi-page plan sets are fine — we find the
+              floor-plan sheet automatically.
+            </li>
+          </ul>
+          <p className="mt-2 text-xs text-amber-800">
+            If a design can&apos;t be reconstructed in 3D it can&apos;t be
+            processed — you&apos;ll be told why and asked to fix and re-upload it.
+          </p>
+        </div>
+
         <PlanDropzone projectId={projectId} />
         <div className="mt-4">
           <PlanList plans={plans} />

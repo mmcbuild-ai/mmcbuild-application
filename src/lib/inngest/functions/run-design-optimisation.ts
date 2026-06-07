@@ -10,7 +10,6 @@ import {
   OPTIMISATION_SUMMARY_PROMPT,
 } from "@/lib/ai/prompts/optimisation-system";
 import type { DesignOptimisationResult } from "@/lib/ai/types";
-import { extractFullHouse } from "@/lib/build/spatial/full-house-extractor";
 import type { SpatialLayout } from "@/lib/build/spatial/types";
 import { createReportVersion } from "@/lib/report-versions";
 
@@ -112,146 +111,13 @@ export const runDesignOptimisation = inngest.createFunction(
       return layout;
     })) as SpatialLayout | null;
 
-    // FALLBACK path (only if no project-page extraction exists — legacy/edge):
-    // run the same robust extractor the project-page preview uses. Split into
-    // two steps mirroring the /build/test-3d worker so neither exceeds the 300s
-    // per-invocation budget: (i) resolve the plan to a PDF in storage
-    // (CloudConvert for DWG/RVT/SKP/DOC; native PDFs pass through), then (ii)
-    // run the robust extractor. Only the PDF storage path crosses the step
-    // boundary — never the multi-MB buffer (Inngest 1MB step-result limit).
-    // bucket name is "plan-uploads" (matches plan-dropzone.tsx upload target).
-    let pdfRef: { pdfPath: string } | null = null;
-    if (!cachedLayout) {
-      pdfRef = (await step.run("convert-plan-to-pdf", async () => {
-      const { data: plan } = await db()
-        .from("plans")
-        .select("file_path, file_kind, file_name")
-        .eq("id", check.plan_id)
-        .single();
-
-      if (!plan?.file_path) return null;
-
-      const planKind = (plan as { file_kind?: string | null }).file_kind;
-      const planFileName =
-        (plan as { file_name?: string | null }).file_name ?? "plan";
-
-      // Native PDF — extractor reads it directly from the stored path.
-      if (
-        planKind !== "dwg" &&
-        planKind !== "rvt" &&
-        planKind !== "skp" &&
-        planKind !== "doc"
-      ) {
-        return { pdfPath: plan.file_path };
-      }
-
-      // Non-PDF (DWG/RVT/SKP/DOC) — download, CloudConvert → PDF, write the
-      // intermediate PDF to a temp path the extract step reads. Without this,
-      // the raw binary can't be rasterised and spatial_layout stays null
-      // (Karen's "data but no image" symptom; SCRUM-52).
-      const admin = createAdminClient();
-      const { data: fileData } = await admin.storage
-        .from("plan-uploads")
-        .download(plan.file_path);
-      if (!fileData) return null;
-      const sourceBuffer = Buffer.from(await fileData.arrayBuffer());
-
-      let pdfBytes: Buffer;
-      if (planKind === "dwg") {
-        const { convertDwg } = await import("@/lib/plans/dwg-converter");
-        const conv = await convertDwg(sourceBuffer, planFileName, "pdf");
-        if ("error" in conv) {
-          console.warn(
-            `[run-design-optimisation] DWG → PDF conversion failed for check ${check.id}: ${conv.error}. Leaving spatial_layout null.`,
-          );
-          return null;
-        }
-        pdfBytes = Buffer.from(conv.buffer);
-      } else {
-        const { convertViaCloudConvert } = await import(
-          "@/lib/plans/dwg-converter"
-        );
-        const ext = planFileName.split(".").pop()?.toLowerCase() ?? "";
-        const inputFormat =
-          planKind === "rvt"
-            ? "rvt"
-            : planKind === "skp"
-              ? "skp"
-              : ext === "docx"
-                ? "docx"
-                : "doc";
-        const conv = await convertViaCloudConvert(
-          sourceBuffer,
-          planFileName,
-          inputFormat,
-          "pdf",
-        );
-        if ("error" in conv) {
-          console.warn(
-            `[run-design-optimisation] ${planKind} → PDF conversion failed for check ${check.id}: ${conv.error}. Leaving spatial_layout null.`,
-          );
-          return null;
-        }
-        pdfBytes = Buffer.from(conv.buffer);
-      }
-
-      const orgPrefix = plan.file_path.split("/")[0] || "shared";
-      const intermediatePath = `${orgPrefix}/build-opt/intermediate/${check.id}.pdf`;
-      const { error: uploadError } = await createAdminClient()
-        .storage.from("plan-uploads")
-        .upload(intermediatePath, pdfBytes, {
-          contentType: "application/pdf",
-          upsert: true,
-        });
-      if (uploadError) {
-        console.warn(
-          `[run-design-optimisation] intermediate PDF upload failed for check ${check.id}: ${uploadError.message}. Leaving spatial_layout null.`,
-        );
-        return null;
-      }
-      return { pdfPath: intermediatePath };
-      })) as { pdfPath: string } | null;
-    }
-
-    let spatialLayout: SpatialLayout | null = cachedLayout;
-    if (!cachedLayout && pdfRef) {
-      const pdfPath = pdfRef.pdfPath;
-      spatialLayout = (await step.run("extract-spatial-layout", async () => {
-          try {
-            const { data: fileData } = await createAdminClient()
-              .storage.from("plan-uploads")
-              .download(pdfPath);
-            if (!fileData) return null;
-            const pdfBuffer = Buffer.from(await fileData.arrayBuffer());
-
-            // Use the SAME robust extractor as the /build/test-3d harness and
-            // the build-page preview (extractFullHouse): native multi-page PDF
-            // reading, page classifier, and the raster sheet-decomposer that
-            // recovers walls from model-space DWG dumps — plus elevation/section
-            // enrichment so the report's 3D matches the preview's. Replaces the
-            // old single-page findFloorPlanPage → renderPdfPage →
-            // extractSpatialLayout path, which missed CAD doc-sets and left
-            // spatial_layout null (Karen 2026-06-07).
-            const fh = await extractFullHouse(pdfBuffer.toString("base64"));
-            if (fh.error || !fh.layout) {
-              console.warn(
-                `[run-design-optimisation] extractFullHouse returned no layout for check ${check.id}: ${fh.error ?? "no layout"} (floorPlanPage=${fh.floorPlanPage}, pages=${fh.totalPages}).`,
-              );
-              return null;
-            }
-
-            await db()
-              .from("design_checks")
-              .update({ spatial_layout: fh.layout })
-              .eq("id", check.id);
-
-            return fh.layout;
-          } catch (err) {
-            console.error("Spatial extraction failed (non-fatal):", err);
-            return null;
-          }
-        })) as SpatialLayout | null;
-    }
+    // No second extraction. Design Optimisation analyses the original design
+    // (plan text/specs via RAG) + this one extracted version + the selected MMC
+    // system — it never re-extracts, so there is only ever ONE extracted design
+    // (the project-page one), not two that could disagree. If no extraction
+    // exists (shouldn't happen — the gate requires the preview first), the
+    // optimisation still runs text-only with spatial_layout left null.
+    const spatialLayout = cachedLayout;
 
     // 3c. Load selected construction systems
     const selectedSystems = await step.run("load-selected-systems", async () => {

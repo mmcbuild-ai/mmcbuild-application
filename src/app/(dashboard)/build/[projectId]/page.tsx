@@ -15,7 +15,7 @@ import { getProjectPlans } from "@/app/(dashboard)/projects/actions";
 import {
   getProjectDesignChecks,
   getProjectSelectedSystems,
-  hasPlanLayout,
+  hasValidExtraction,
 } from "../actions";
 import { RunOptimisationButton } from "@/components/build/run-optimisation-button";
 import { SystemSelectionPanel } from "@/components/build/system-selection-panel";
@@ -88,11 +88,13 @@ export default async function ProjectBuildPage({
   const readyPlan = plans.find(
     (p: { status: string }) => p.status === "ready"
   );
-  // Hard gate: Design Optimisation only unlocks after the user has run the 3D
-  // preview ("See your design built in the 4 MMC systems") and seen their
-  // design across the systems. The preview refreshes this page on success.
-  const hasPreviewed = readyPlan ? await hasPlanLayout(readyPlan.id) : false;
-  const canRun = !!readyPlan && hasPreviewed;
+  // Hard gate: Design Optimisation unlocks only once the design has a VALID
+  // extracted 3D ("See your design built in the 4 MMC systems"). A design we
+  // can't reconstruct is rejected — the user is told why and must fix + re-
+  // upload before proceeding; we don't optimise invalid designs. The preview
+  // refreshes this page when extraction succeeds.
+  const hasValidDesign = readyPlan ? await hasValidExtraction(readyPlan.id) : false;
+  const canRun = !!readyPlan && hasValidDesign;
 
   return (
     <div className="space-y-6">
@@ -113,7 +115,9 @@ export default async function ProjectBuildPage({
 
       {/* See-your-design-in-4-systems preview — runs the already-uploaded plan
           through the 3D extractor so the system choice below is informed. */}
-      {readyPlan && <SystemPreviewPanel planId={readyPlan.id} />}
+      {readyPlan && (
+        <SystemPreviewPanel projectId={projectId} planId={readyPlan.id} />
+      )}
 
       {/* Construction system selection */}
       <SystemSelectionPanel
@@ -168,11 +172,13 @@ export default async function ProjectBuildPage({
               <p className="text-sm text-muted-foreground">
                 Upload and process a plan first.
               </p>
-            ) : !hasPreviewed ? (
+            ) : !hasValidDesign ? (
               <p className="text-sm text-muted-foreground">
                 Run <span className="font-medium">&ldquo;See your design built
-                in the 4 MMC systems&rdquo;</span> above and review your design
-                first — Design Optimisation unlocks once you have.
+                in the 4 MMC systems&rdquo;</span> above first. Design
+                Optimisation unlocks once your design extracts successfully — if
+                it can&apos;t, you&apos;ll be told why so you can fix and
+                re-upload it.
               </p>
             ) : (
               <RunOptimisationButton

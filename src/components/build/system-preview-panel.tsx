@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Layers, Loader2, AlertCircle, PlayCircle, Box } from "lucide-react";
 import { BuildSequence } from "./build-sequence";
 import { SystemExplorerView } from "./system-explorer-view";
@@ -28,7 +29,13 @@ const PREVIEW_VIEWS: Array<{ key: ViewMode; label: string; Icon: typeof Box }> =
  * Runs the same extraction pipeline as /build/test-3d against the project's
  * plan (no re-upload), then mounts the Build Sequence storyboard.
  */
-export function SystemPreviewPanel({ planId }: { planId: string }) {
+export function SystemPreviewPanel({
+  projectId,
+  planId,
+}: {
+  projectId: string;
+  planId: string;
+}) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [layout, setLayout] = useState<SpatialLayout | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +63,7 @@ export function SystemPreviewPanel({ planId }: { planId: string }) {
           markReady(status.result.layout);
         } else {
           setError(
-            "We couldn't reconstruct a 3D layout from this plan. The build-sequence preview needs a readable floor plan.",
+            "We couldn't reconstruct a 3D model from this plan — no readable floor plan / wall geometry was found.",
           );
           setPhase("error");
         }
@@ -115,7 +122,7 @@ export function SystemPreviewPanel({ planId }: { planId: string }) {
             </p>
           </div>
         </div>
-        {phase !== "ready" && (
+        {(phase === "idle" || phase === "working") && (
           <button
             type="button"
             onClick={start}
@@ -127,8 +134,6 @@ export function SystemPreviewPanel({ planId }: { planId: string }) {
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Building preview…
               </>
-            ) : phase === "error" ? (
-              "Try again"
             ) : (
               "Show my design"
             )}
@@ -145,9 +150,39 @@ export function SystemPreviewPanel({ planId }: { planId: string }) {
       )}
 
       {phase === "error" && error && (
-        <div className="flex items-start gap-2 border-t px-4 py-3 text-sm text-amber-700">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{error}</span>
+        <div className="border-t bg-red-50 px-4 py-4">
+          <div className="flex items-start gap-2 text-sm text-red-800">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+            <div>
+              <p className="font-medium">
+                We can&apos;t process this design
+              </p>
+              <p className="mt-1 text-red-700">{error}</p>
+              <p className="mt-2 text-red-700">
+                MMC Build needs a readable plan it can reconstruct in 3D. Please
+                fix the issue in your design and re-upload it — common causes are
+                a scanned/image-only PDF with no vector geometry, a plan set with
+                no floor-plan sheet, or a CAD export with the geometry in model
+                space only. Design Optimisation stays locked until a valid design
+                extracts.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-3">
+                <Link
+                  href={`/comply/${projectId}/upload`}
+                  className="inline-flex min-h-[44px] items-center rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+                >
+                  Re-upload your design
+                </Link>
+                <button
+                  type="button"
+                  onClick={start}
+                  className="inline-flex min-h-[44px] items-center rounded-md border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                >
+                  Try again
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

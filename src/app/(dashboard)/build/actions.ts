@@ -277,10 +277,13 @@ export async function getCachedPlanLayout(
   return cached?.result?.layout ?? null;
 }
 
-// Lightweight gate check: has this plan been extracted into a 3D layout yet
-// (via the build-page preview / test-3d)? Used to hard-gate Design Optimisation
-// behind "run the 3D preview first". Selects only an id — no jsonb payload.
-export async function hasPlanLayout(planId: string): Promise<boolean> {
+// Gate check: does this plan have a VALID extracted 3D layout? Design
+// Optimisation only unlocks once the design has successfully extracted — an
+// uploaded design we can't reconstruct in 3D is treated as invalid and must be
+// fixed + re-uploaded, not optimised. Requires a done job whose result actually
+// carries a layout (a "done" job can still have a null layout on a bad plan).
+// Filters on the jsonb path so it stays lightweight (selects only an id).
+export async function hasValidExtraction(planId: string): Promise<boolean> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -305,16 +308,17 @@ export async function hasPlanLayout(planId: string): Promise<boolean> {
   } | null) ?? null;
   if (!plan || plan.org_id !== profile.org_id || !plan.file_path) return false;
 
-  const { data: doneRow } = await db()
+  const { data: row } = await db()
     .from("test_3d_jobs")
     .select("id")
     .eq("org_id", profile.org_id)
     .eq("storage_path", plan.file_path)
     .eq("status", "done")
+    .not("result->layout", "is", null)
     .limit(1)
     .maybeSingle();
 
-  return !!doneRow;
+  return !!row;
 }
 
 export type StartSystemPreviewResult =
