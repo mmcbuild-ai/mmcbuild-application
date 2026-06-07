@@ -84,7 +84,7 @@ export function EditProjectDialog({
         </DialogHeader>
         <form action={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="edit-name">Project Name</Label>
+            <Label htmlFor="edit-name">Project Name *</Label>
             <Input
               id="edit-name"
               name="name"

@@ -98,7 +98,7 @@ export function CreateProjectDialog({ defaultOpen = false }: { defaultOpen?: boo
         <form action={handleSubmit} className="flex flex-col flex-1 min-h-0">
           <div className="space-y-4 shrink-0">
             <div className="space-y-2">
-              <Label htmlFor="name">Project Name</Label>
+              <Label htmlFor="name">Project Name *</Label>
               <Input
                 id="name"
                 name="name"
