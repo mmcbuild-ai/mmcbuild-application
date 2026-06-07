@@ -7,6 +7,7 @@ import { Layers, Loader2, AlertCircle, PlayCircle, Box } from "lucide-react";
 import { BuildSequence } from "./build-sequence";
 import { SystemExplorerView } from "./system-explorer-view";
 import { PlanComparison3D } from "./plan-comparison-3d";
+import { SystemSelectChips } from "./system-select-chips";
 import { startProjectSystemPreview } from "@/app/(dashboard)/build/actions";
 import { getTest3DStatus } from "@/app/(dashboard)/build/test-3d/actions";
 import type { SpatialLayout } from "@/lib/build/spatial";
@@ -32,9 +33,13 @@ const PREVIEW_VIEWS: Array<{ key: ViewMode; label: string; Icon: typeof Box }> =
 export function SystemPreviewPanel({
   projectId,
   planId,
+  initialSystems,
+  hasDownstreamReports,
 }: {
   projectId: string;
   planId: string;
+  initialSystems: string[];
+  hasDownstreamReports: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [layout, setLayout] = useState<SpatialLayout | null>(null);
@@ -229,6 +234,12 @@ export function SystemPreviewPanel({
               <PlanComparison3D layout={layout} suggestions={[]} />
             )}
           </div>
+
+          <SystemSelectChips
+            projectId={projectId}
+            initialSystems={initialSystems}
+            hasDownstreamReports={hasDownstreamReports}
+          />
         </div>
       )}
     </div>

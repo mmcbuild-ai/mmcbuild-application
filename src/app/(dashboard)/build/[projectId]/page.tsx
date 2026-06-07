@@ -18,7 +18,6 @@ import {
   hasValidExtraction,
 } from "../actions";
 import { RunOptimisationButton } from "@/components/build/run-optimisation-button";
-import { SystemSelectionPanel } from "@/components/build/system-selection-panel";
 import { SystemPreviewPanel } from "@/components/build/system-preview-panel";
 import { ReportVersionList } from "@/components/shared/report-version-list";
 import { ProjectContextSummary } from "@/components/shared/project-context-summary";
@@ -94,7 +93,11 @@ export default async function ProjectBuildPage({
   // upload before proceeding; we don't optimise invalid designs. The preview
   // refreshes this page when extraction succeeds.
   const hasValidDesign = readyPlan ? await hasValidExtraction(readyPlan.id) : false;
-  const canRun = !!readyPlan && hasValidDesign;
+  // Design Optimisation also needs at least one construction system chosen —
+  // there's nothing to optimise against otherwise. Systems are now selected in
+  // the preview (the standalone checkbox panel is deprecated).
+  const hasSystemSelected = selectedSystems.length > 0;
+  const canRun = !!readyPlan && hasValidDesign && hasSystemSelected;
 
   return (
     <div className="space-y-6">
@@ -114,17 +117,17 @@ export default async function ProjectBuildPage({
       <ProjectContextSummary projectId={projectId} />
 
       {/* See-your-design-in-4-systems preview — runs the already-uploaded plan
-          through the 3D extractor so the system choice below is informed. */}
+          through the 3D extractor, then the user picks the system(s) to
+          optimise right here. (The standalone Construction Systems checkbox
+          panel is deprecated — selection lives in the preview now.) */}
       {readyPlan && (
-        <SystemPreviewPanel projectId={projectId} planId={readyPlan.id} />
+        <SystemPreviewPanel
+          projectId={projectId}
+          planId={readyPlan.id}
+          initialSystems={selectedSystems}
+          hasDownstreamReports={checks.length > 0}
+        />
       )}
-
-      {/* Construction system selection */}
-      <SystemSelectionPanel
-        projectId={projectId}
-        initialSystems={selectedSystems}
-        hasDownstreamReports={checks.length > 0}
-      />
 
       {/* Plan status + Run button */}
       <div className="grid gap-6 md:grid-cols-2">
@@ -179,6 +182,12 @@ export default async function ProjectBuildPage({
                 Optimisation unlocks once your design extracts successfully — if
                 it can&apos;t, you&apos;ll be told why so you can fix and
                 re-upload it.
+              </p>
+            ) : !hasSystemSelected ? (
+              <p className="text-sm text-muted-foreground">
+                Choose at least one construction system in the preview above
+                (and save it) — there&apos;s nothing to optimise against until
+                you do.
               </p>
             ) : (
               <RunOptimisationButton
