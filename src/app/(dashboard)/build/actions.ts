@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { inngest } from "@/lib/inngest/client";
 import { db } from "@/lib/supabase/db";
 import { revalidatePath } from "next/cache";
+import type { SpatialLayout } from "@/lib/build/spatial/types";
 
 export async function requestDesignOptimisation(
   projectId: string,
@@ -215,4 +216,108 @@ export async function setSuggestionDecision(
     `/build/${checkRow.design_checks.project_id}/report/${checkRow.check_id}`,
   );
   return { success: true };
+}
+
+// ---------------------------------------------------------------------------
+// System-preview (pre-selection): render the project's already-uploaded plan
+// in all four MMC systems BEFORE the user picks a construction system, so they
+// can see what each system means for their design. Mirrors the /build/test-3d
+// harness pipeline (enqueue → Inngest → test_3d_jobs → poll) but runs against
+// the plan already uploaded during project setup — no second upload.
+//
+// Caching: a completed test_3d_jobs row for the same plan storage path is
+// reused (instant + no repeat AI cost). Only the first preview per plan runs
+// the extractor. Poll with getTest3DStatus() from ./test-3d/actions.
+// ---------------------------------------------------------------------------
+export type StartSystemPreviewResult =
+  | { layout: SpatialLayout }
+  | { jobId: string }
+  | { error: string };
+
+export async function startProjectSystemPreview(
+  planId: string,
+): Promise<StartSystemPreviewResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("id, org_id")
+    .eq("user_id", user.id)
+    .single();
+  if (!profile?.org_id) return { error: "Profile not found" };
+
+  // Load the plan and confirm it belongs to the caller's org.
+  const { data: planRow } = await db()
+    .from("plans")
+    .select("id, org_id, file_path, file_name, status")
+    .eq("id", planId)
+    .single();
+
+  const plan = (planRow as unknown as {
+    id: string;
+    org_id: string;
+    file_path: string | null;
+    file_name: string | null;
+    status: string;
+  } | null) ?? null;
+
+  if (!plan || plan.org_id !== profile.org_id) {
+    return { error: "Plan not found" };
+  }
+  if (!plan.file_path) {
+    return { error: "Plan has no stored file" };
+  }
+
+  // Cache hit: reuse a completed extraction for the same plan file.
+  const { data: doneRow } = await db()
+    .from("test_3d_jobs")
+    .select("result")
+    .eq("org_id", profile.org_id)
+    .eq("storage_path", plan.file_path)
+    .eq("status", "done")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const cached = (doneRow as unknown as
+    | { result: { layout: SpatialLayout | null } | null }
+    | null) ?? null;
+  if (cached?.result?.layout) {
+    return { layout: cached.result.layout };
+  }
+
+  // No cached layout — enqueue the extraction job (same shape as the harness).
+  const { data: job, error: insertError } = await db()
+    .from("test_3d_jobs")
+    .insert({
+      user_id: user.id,
+      org_id: profile.org_id,
+      storage_path: plan.file_path,
+      file_name: plan.file_name ?? "plan",
+      page_input: null,
+      status: "queued",
+    })
+    .select("id")
+    .single();
+
+  if (insertError || !job) {
+    return {
+      error: `Failed to start preview: ${insertError?.message ?? "unknown"}`,
+    };
+  }
+
+  await inngest.send({
+    name: "test3d/extract.requested",
+    data: {
+      jobId: (job as { id: string }).id,
+      storagePath: plan.file_path,
+      fileName: plan.file_name ?? "plan",
+    },
+  });
+
+  return { jobId: (job as { id: string }).id };
 }

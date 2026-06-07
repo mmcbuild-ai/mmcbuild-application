@@ -15,6 +15,7 @@ import { getProjectPlans } from "@/app/(dashboard)/projects/actions";
 import { getProjectDesignChecks, getProjectSelectedSystems } from "../actions";
 import { RunOptimisationButton } from "@/components/build/run-optimisation-button";
 import { SystemSelectionPanel } from "@/components/build/system-selection-panel";
+import { SystemPreviewPanel } from "@/components/build/system-preview-panel";
 import { ReportVersionList } from "@/components/shared/report-version-list";
 import { ProjectContextSummary } from "@/components/shared/project-context-summary";
 import { getReportVersions } from "@/lib/report-versions";
@@ -101,6 +102,10 @@ export default async function ProjectBuildPage({
       </div>
 
       <ProjectContextSummary projectId={projectId} />
+
+      {/* See-your-design-in-4-systems preview — runs the already-uploaded plan
+          through the 3D extractor so the system choice below is informed. */}
+      {readyPlan && <SystemPreviewPanel planId={readyPlan.id} />}
 
       {/* Construction system selection */}
       <SystemSelectionPanel
