@@ -9,12 +9,15 @@ import { AlertTriangle, Check, Loader2, Settings2 } from "lucide-react";
 import { updateSelectedSystems } from "@/app/(dashboard)/build/actions";
 
 export const CONSTRUCTION_SYSTEMS = [
-  { key: "sips", label: "SIPs", description: "Structural Insulated Panels for walls, roofs, and floors" },
-  { key: "clt", label: "CLT / Mass Timber", description: "Cross-Laminated Timber, Glulam, and mass timber systems" },
-  { key: "steel_frame", label: "Steel Frame", description: "Light-gauge cold-formed steel framing systems" },
-  { key: "timber_frame", label: "Timber Frame", description: "Prefabricated timber wall panels and cassette floors" },
-  { key: "volumetric_modular", label: "Volumetric Modular", description: "Complete 3D modules manufactured off-site" },
-  { key: "hybrid", label: "Hybrid", description: "Combination of multiple MMC systems and emerging tech" },
+  // Available now — these are the systems the 3D build-sequence preview renders.
+  { key: "sips", label: "SIPs / Panelisation", description: "Structural insulated and prefabricated panels for walls, roofs, and floors", comingSoon: false },
+  { key: "volumetric_modular", label: "Volumetric Modular", description: "Complete 3D modules manufactured off-site", comingSoon: false },
+  { key: "concrete_printing", label: "3D Concrete Printing", description: "Walls printed layer-by-layer from concrete on site", comingSoon: false },
+  // Coming soon — not yet selectable.
+  { key: "clt", label: "CLT / Mass Timber", description: "Cross-Laminated Timber, Glulam, and mass timber systems", comingSoon: true },
+  { key: "steel_frame", label: "Steel Frame", description: "Light-gauge cold-formed steel framing — part of hybrid systems", comingSoon: true },
+  { key: "timber_frame", label: "Timber Frame", description: "Prefabricated timber wall panels and cassette floors — part of hybrid systems", comingSoon: true },
+  { key: "hybrid", label: "Hybrid", description: "Combination of multiple MMC systems and emerging tech", comingSoon: true },
 ] as const;
 
 export type ConstructionSystemKey = (typeof CONSTRUCTION_SYSTEMS)[number]["key"];
@@ -80,16 +83,21 @@ export function SystemSelectionPanel({
       <CardContent className="space-y-4">
         <div className="grid gap-2 sm:grid-cols-2">
           {CONSTRUCTION_SYSTEMS.map((sys) => {
-            const isSelected = selected.has(sys.key);
+            const disabled = sys.comingSoon;
+            const isSelected = !disabled && selected.has(sys.key);
             return (
               <button
                 key={sys.key}
                 type="button"
-                onClick={() => toggle(sys.key)}
+                onClick={disabled ? undefined : () => toggle(sys.key)}
+                disabled={disabled}
+                aria-disabled={disabled}
                 className={`flex items-start gap-3 rounded-lg border p-3 text-left transition-colors ${
-                  isSelected
-                    ? "border-teal-300 bg-teal-50"
-                    : "border-gray-200 hover:border-gray-300"
+                  disabled
+                    ? "cursor-not-allowed border-gray-200 bg-gray-50 opacity-60"
+                    : isSelected
+                      ? "border-teal-300 bg-teal-50"
+                      : "border-gray-200 hover:border-gray-300"
                 }`}
               >
                 <div
@@ -102,7 +110,17 @@ export function SystemSelectionPanel({
                   {isSelected && <Check className="h-3 w-3" />}
                 </div>
                 <div>
-                  <p className="text-sm font-medium">{sys.label}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium">{sys.label}</p>
+                    {disabled && (
+                      <Badge
+                        variant="secondary"
+                        className="bg-gray-200 px-1.5 py-0 text-[10px] font-medium text-gray-600"
+                      >
+                        Coming soon
+                      </Badge>
+                    )}
+                  </div>
                   <p className="text-xs text-muted-foreground">{sys.description}</p>
                 </div>
               </button>
