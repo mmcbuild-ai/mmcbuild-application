@@ -1,0 +1,11 @@
+-- Migration 00058: Baseline the seat_type enum to match live (Phase 2).
+-- LIVE lztzyfeivpsbqbsfzctw already has 'beta' in seat_type (confirmed 2026-06-08:
+-- enum = {internal, external, viewer, beta}), but the repo migrations never
+-- recorded it (unbaselined ledger — manual application). This makes a from-repo
+-- rebuild match live, and lets organisation_members.seat_type hold 'beta' for
+-- beta-tester memberships in Phase 2.
+--
+-- Idempotent + a no-op on live (IF NOT EXISTS). NOTE: ALTER TYPE ... ADD VALUE
+-- must run on its own (not inside a multi-statement transaction) — run this file
+-- as a single statement.
+ALTER TYPE seat_type ADD VALUE IF NOT EXISTS 'beta';

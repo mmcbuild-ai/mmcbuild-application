@@ -69,10 +69,16 @@ own membership rows / active-org row; service role manages writes via actions).
 2. **Add `is_org_member(target_org uuid)` + `has_org_role(target_org uuid, roles text[])`**
    SECURITY DEFINER helpers reading `organisation_members`.
 
-3. **Repoint the ~18 role-gated checks** (7 files) from
-   `EXISTS (SELECT 1 FROM profiles WHERE user_id=auth.uid() AND org_id=id AND role IN (...))`
-   to `has_org_role(id, ARRAY['owner','admin'])`. Behaviour-preserving for
-   single-org users (their active org == their only membership).
+3. **Role-gated checks (~18, 7 files) need NO rewrite** (confirmed 2026-06-08).
+   Because `profiles` is a single row that MIRRORS the active membership (D2) and
+   every check is org-scoped, the inline
+   `EXISTS (SELECT 1 FROM profiles WHERE user_id=auth.uid() AND org_id=<row org> AND role IN (...))`
+   already evaluates against the user's ACTIVE org+role, and row visibility is
+   pinned to the active org by `get_user_org_id()`. So they stay correct as-is
+   (a user acts only in their active org — the intended "switch to act" UX).
+   Repointing to `has_org_role()` is optional cleanup, not required — the helper
+   ships in 00057 for any future policy that genuinely needs a cross-org role
+   check. This is a direct payoff of the D2 active-mirror decision.
 
 4. RLS stays ENABLED on every table throughout. No policy is dropped without a
    replacement in the same migration.
@@ -89,13 +95,25 @@ Phase 1  EXPAND (additive, zero behaviour change)
          profiles.org_id/role in sync with user_active_org + membership
 
 Phase 2  FLIP (switch the read source)
-  00058  redefine get_user_org_id() to read user_active_org
-  00059  repoint the ~18 role-gated policy checks to has_org_role()
+  00058  baseline seat_type 'beta' (repo<->live parity; no-op on live)
+  00059  redefine get_user_org_id() to read user_active_org (COALESCE fallback
+         to profiles) + profiles-mirror sync trigger
+  (00060 role-check repoint => NOT REQUIRED, see note below; optional cleanup)
 
 Phase 3  CONTRACT (later, optional)
   profiles.org_id/role stay as the active mirror (D2) — NOT dropped.
   (No contract step needed; the mirror is intentional.)
 ```
+
+**Ledger-drift baselining (Phase 2, confirmed against live 2026-06-08).** The LIVE
+`seat_type` enum is `{internal, external, viewer, beta}` and `user_role` is
+`{owner, admin, project_manager, architect, builder, trade, viewer, beta}`, but the
+repo migrations never recorded `ALTER TYPE seat_type ADD VALUE 'beta'` (manual,
+unbaselined ledger). Phase 1 is unaffected (it backfills from profiles' own typed
+columns), but Phase 2 must add a baselining migration:
+`ALTER TYPE seat_type ADD VALUE IF NOT EXISTS 'beta';` so a from-repo rebuild
+matches live (organisation_members.seat_type must accept `beta` for beta-tester
+memberships).
 
 Every migration: idempotent (`IF NOT EXISTS`, `ON CONFLICT`, `CREATE OR REPLACE`),
 applied per the repo's CLI flow against `lztzyfeivpsbqbsfzctw` (verify linked ref
