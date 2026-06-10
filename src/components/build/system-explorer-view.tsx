@@ -5,7 +5,6 @@ import { Canvas } from "@react-three/fiber";
 import {
   OrbitControls,
   PerspectiveCamera,
-  Environment,
   ContactShadows,
 } from "@react-three/drei";
 import {
@@ -37,7 +36,13 @@ function SystemCanvas({
     () => buildFloorPlan3DForSystem(layout, system, variant),
     [layout, system, variant],
   );
-  const maxDim = Math.max(layout.bounds.width, layout.bounds.depth);
+  // Guard degenerate bounds so a zero-sized layout doesn't collapse the camera
+  // and scene to the origin (invisible).
+  const rawWidth = layout.bounds?.width ?? 0;
+  const rawDepth = layout.bounds?.depth ?? 0;
+  const safeWidth = rawWidth > 0.5 ? rawWidth : 12;
+  const safeDepth = rawDepth > 0.5 ? rawDepth : 10;
+  const maxDim = Math.max(safeWidth, safeDepth);
   const camDist = maxDim * 1.4;
 
   return (
@@ -56,8 +61,10 @@ function SystemCanvas({
           maxDistance={camDist * 3}
           target={[0, maxDim * 0.15, 0]}
         />
-        {/* Clay aesthetic substrate */}
-        <ambientLight intensity={0.35} />
+        {/* Clay aesthetic substrate. No <Environment> HDR — it fetches from a
+            third-party CDN that guest/co-working networks block, blanking the
+            whole scene; ambient is raised to compensate for the lost fill. */}
+        <ambientLight intensity={0.6} />
         <directionalLight
           position={[maxDim * 1.2, maxDim * 2, maxDim * 0.6]}
           intensity={1.0}
@@ -71,9 +78,8 @@ function SystemCanvas({
         />
         <directionalLight
           position={[-maxDim, maxDim * 1.5, -maxDim * 0.6]}
-          intensity={0.25}
+          intensity={0.35}
         />
-        <Environment preset="city" />
         <ContactShadows
           position={[0, 0.005, 0]}
           opacity={0.45}
