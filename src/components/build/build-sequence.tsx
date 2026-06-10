@@ -24,7 +24,6 @@ import { Canvas } from "@react-three/fiber";
 import {
   OrbitControls,
   PerspectiveCamera,
-  Environment,
   ContactShadows,
 } from "@react-three/drei";
 import * as THREE from "three";
@@ -334,7 +333,14 @@ function Scene({
   progress: number;
   phases: PhaseWindow[];
 }) {
-  const { width, depth } = layout.bounds;
+  // Guard degenerate bounds. If the extractor returned a layout with zero/near-
+  // zero bounds, every dimension below collapses to 0 (camera at the origin,
+  // ground 0×0, modules size 0) and the whole scene renders invisible while the
+  // timeline keeps moving. Fall back to a sane footprint so something always shows.
+  const rawWidth = layout.bounds?.width ?? 0;
+  const rawDepth = layout.bounds?.depth ?? 0;
+  const width = rawWidth > 0.5 ? rawWidth : 12;
+  const depth = rawDepth > 0.5 ? rawDepth : 10;
   const wallHeight = layout.wall_height || 2.4;
   const maxDim = Math.max(width, depth);
   const camDist = maxDim * 1.8;
@@ -391,19 +397,23 @@ function Scene({
           maxDistance={camDist * 3}
           target={[0, maxDim * 0.12, 0]}
         />
-        <ambientLight intensity={0.4} />
+        {/* Lights only — no <Environment> HDR. The drei environment preset
+            fetches an HDRI from a third-party CDN, which guest/co-working
+            networks (e.g. Fishburners) block or throttle; held inside the single
+            Suspense it blanked the whole scene. Ambient is raised to compensate
+            for the lost image-based fill so the render stays bright. */}
+        <ambientLight intensity={0.65} />
         <directionalLight
           position={[maxDim * 1.2, maxDim * 2, maxDim * 0.6]}
-          intensity={1.0}
+          intensity={1.1}
           castShadow
           shadow-mapSize-width={1024}
           shadow-mapSize-height={1024}
         />
         <directionalLight
           position={[-maxDim, maxDim * 1.5, -maxDim * 0.6]}
-          intensity={0.25}
+          intensity={0.35}
         />
-        <Environment preset="city" />
         <ContactShadows
           position={[0, 0.004, 0]}
           opacity={0.4}
