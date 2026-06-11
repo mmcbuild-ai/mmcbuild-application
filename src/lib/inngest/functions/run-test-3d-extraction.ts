@@ -15,7 +15,7 @@ import { extractSpatialLayoutFromDxf } from "@/lib/plans/dxf-extractor";
 import { extractFullHouse } from "@/lib/build/spatial/full-house-extractor";
 import { extractSpatialLayout } from "@/lib/build/spatial/extractor";
 import { aiUnavailableUserMessage } from "@/lib/ai/provider-errors";
-import type { Test3DResult } from "@/lib/build/test-3d-runner";
+import type { Test3DResult } from "@/lib/build/test-3d-types";
 
 /**
  * Test-3D extraction orchestrator. Each heavy operation runs as its own

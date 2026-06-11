@@ -9,7 +9,7 @@ import {
   enqueueTest3D,
   getTest3DStatus,
 } from "@/app/(dashboard)/build/test-3d/actions";
-import type { Test3DResult } from "@/lib/build/test-3d-runner";
+import type { Test3DResult } from "@/lib/build/test-3d-types";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import {

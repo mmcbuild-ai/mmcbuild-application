@@ -39,6 +39,57 @@ const MAX_POLL_ATTEMPTS = 80;
 // rather than hanging the function until Vercel kills the connection.
 const FETCH_TIMEOUT_MS = 60_000;
 const MAX_DWG_BYTES = 50 * 1024 * 1024; // 50 MB matches plan-uploads cap
+// Job creation occasionally returns a transient 5xx — a 502 Bad Gateway killed
+// a live DWG → PDF render on 2026-06-11 (test_3d_jobs ff22b841) because the
+// call was single-shot with no retry. Retry transient server/network failures
+// a few times before giving up; NEVER retry a 4xx (that's our request being
+// wrong, not an upstream blip).
+const TRANSIENT_RETRY_ATTEMPTS = 3;
+
+/**
+ * fetch() with bounded retry on transient failures (5xx responses + network
+ * errors). Each attempt gets a FRESH AbortSignal.timeout — a reused signal
+ * would already be aborted on the second attempt. A 4xx returns immediately
+ * (not transient). Exported for unit testing the retry behaviour.
+ */
+export async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  opts: {
+    attempts?: number;
+    label?: string;
+    timeoutMs?: number;
+    backoffMs?: number;
+  } = {},
+): Promise<Response> {
+  const attempts = opts.attempts ?? TRANSIENT_RETRY_ATTEMPTS;
+  const timeoutMs = opts.timeoutMs ?? FETCH_TIMEOUT_MS;
+  const backoffMs = opts.backoffMs ?? 800;
+  let last = "";
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const resp = await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      // Success, or a non-transient client error (4xx), or the last attempt →
+      // return the response as-is for the caller to handle.
+      if (resp.ok || resp.status < 500 || attempt === attempts) return resp;
+      last = `HTTP ${resp.status}`;
+    } catch (err) {
+      last = err instanceof Error ? err.message : String(err);
+      if (attempt === attempts) throw err;
+    }
+    console.warn(
+      `[cloudconvert] ${opts.label ?? "request"} attempt ${attempt}/${attempts} transient failure (${last}) — retrying`,
+    );
+    await new Promise((r) => setTimeout(r, backoffMs * attempt));
+  }
+  // The loop always returns or throws on the final attempt; this is for TS.
+  throw new Error(
+    `[cloudconvert] ${opts.label ?? "request"} exhausted ${attempts} attempts: ${last}`,
+  );
+}
 
 export type DwgConvertResult =
   | { buffer: Buffer; format: "pdf" | "dxf" }
@@ -140,16 +191,21 @@ async function runCloudConvertJob(
     return { error: "CLOUDCONVERT_API_KEY not configured" };
   }
 
-  // 1. Create the job
-  const jobResp = await fetch(`${CLOUDCONVERT_BASE}/jobs`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
+  // 1. Create the job. Retry transient 5xx — a single 502 here permanently
+  //    failed a live render (ff22b841, 2026-06-11). fetchWithRetry gives each
+  //    attempt a fresh timeout signal and never retries a 4xx.
+  const jobResp = await fetchWithRetry(
+    `${CLOUDCONVERT_BASE}/jobs`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ tasks }),
     },
-    body: JSON.stringify({ tasks }),
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
+    { label: "job-create" },
+  );
 
   if (!jobResp.ok) {
     const text = await jobResp.text().catch(() => "");

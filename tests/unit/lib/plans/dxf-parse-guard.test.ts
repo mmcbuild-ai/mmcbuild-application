@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   MAX_DXF_PARSE_BYTES,
   dxfTooLargeToParse,
-  DXF_TOO_LARGE_MESSAGE,
   extractLayersFromDxf,
   extractSpatialLayoutFromDxf,
 } from "@/lib/plans/dxf-extractor";
@@ -27,11 +26,6 @@ describe("DXF parse OOM guard", () => {
     expect(dxfTooLargeToParse(MAX_DXF_PARSE_BYTES + 1)).toBe(true);
     expect(dxfTooLargeToParse(MAX_DXF_PARSE_BYTES)).toBe(false);
     expect(dxfTooLargeToParse(1024)).toBe(false);
-  });
-
-  it("the too-large message is actionable (manual review + single-sheet path)", () => {
-    expect(DXF_TOO_LARGE_MESSAGE).toMatch(/manual review/i);
-    expect(DXF_TOO_LARGE_MESSAGE).toMatch(/floor-plan sheet|PDF/i);
   });
 
   it("extractLayersFromDxf returns null on an oversized buffer without parsing", () => {

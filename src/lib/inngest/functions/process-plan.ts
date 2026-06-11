@@ -132,48 +132,67 @@ export const processPlan = inngest.createFunction(
       // back to manual_review (a usable, activatable state). (SCRUM-272)
       try {
         if (kind === "dwg") {
-          const { convertDwg } = await import("@/lib/plans/dwg-converter");
-          const conv = await convertDwg(sourceBuffer, plan.file_name, "dxf");
-          if ("error" in conv) {
-            console.warn(
-              `[processPlan] DWG conversion failed for ${plan.id}: ${conv.error}. Falling back to manual_review.`,
-            );
-            return {
-              pageCount: 0,
-              chunkCount: 0,
-              manualReview: true,
-              errorMessage: `DWG → DXF conversion failed: ${conv.error}`,
-            };
-          }
-
+          const { convertDwg, convertViaCloudConvert } = await import(
+            "@/lib/plans/dwg-converter"
+          );
           const {
             extractLayersFromDxf,
             dxfToSearchableText,
             dxfTooLargeToParse,
-            DXF_TOO_LARGE_MESSAGE,
           } = await import("@/lib/plans/dxf-extractor");
 
-          // Bail BEFORE the memory-heavy parse on an oversized DXF. parseSync on
-          // a giant DXF OOM-kills the whole invocation (an uncatchable 500 HTML
-          // page, not a throw), which would skip this very try/catch and strand
-          // the plan in "error". Storing it as manual_review keeps the file
-          // usable and tells the user exactly what to do. (Karen, 2026-06-11.)
-          if (dxfTooLargeToParse(conv.buffer.length)) {
+          // DWG → PDF → standard PDF text ingestion. The single fallback for
+          // every case where the preferred DXF-layer path can't produce
+          // searchable content, so a DWG never dead-ends at manual_review while
+          // a usable PDF render exists. Mirrors the 3D extractor's "DXF first,
+          // PDF fallback" shape so both code paths handle a DWG the same way.
+          // (2026-06-11 — consolidation.)
+          const ingestDwgViaPdf = async (reason: string) => {
             console.warn(
-              `[processPlan] DXF for ${plan.id} is ` +
-                `${(conv.buffer.length / 1024 / 1024).toFixed(1)}MB — over the parse ` +
-                `cap; storing as manual_review without parsing.`,
+              `[processPlan] DWG ${plan.id}: ${reason} — trying DWG → PDF text ingestion.`,
             );
-            return {
-              pageCount: 0,
-              chunkCount: 0,
-              manualReview: true,
-              errorMessage: DXF_TOO_LARGE_MESSAGE,
-            };
+            const pdf = await convertViaCloudConvert(
+              sourceBuffer,
+              plan.file_name,
+              "dwg",
+              "pdf",
+            );
+            if ("error" in pdf) {
+              return {
+                pageCount: 0,
+                chunkCount: 0,
+                manualReview: true,
+                errorMessage: `${reason}; DWG → PDF fallback also failed: ${pdf.error}`,
+              };
+            }
+            return await ingestPlan(
+              plan.org_id,
+              plan.id,
+              pdf.buffer,
+              "pdf",
+              plan.file_name,
+            );
+          };
+
+          // 1. Preferred: DWG → DXF (preserves CAD layers + text annotations).
+          const conv = await convertDwg(sourceBuffer, plan.file_name, "dxf");
+          if ("error" in conv) {
+            return await ingestDwgViaPdf(
+              `DWG → DXF conversion failed: ${conv.error}`,
+            );
           }
 
-          const extracted = extractLayersFromDxf(conv.buffer);
+          // 2. Guard the parse against OOM on a huge DXF — parseSync on a giant
+          //    DXF OOM-kills the whole invocation (an uncatchable 500, not a
+          //    throw). Skip the parse and fall back to PDF. (Karen, 2026-06-11.)
+          if (dxfTooLargeToParse(conv.buffer.length)) {
+            return await ingestDwgViaPdf(
+              `DXF is ${(conv.buffer.length / 1024 / 1024).toFixed(1)}MB — over the parse cap`,
+            );
+          }
 
+          // 3. Extract CAD layers → searchable text + store extracted_layers.
+          const extracted = extractLayersFromDxf(conv.buffer);
           if (extracted) {
             await admin
               .from("plans")
@@ -189,13 +208,8 @@ export const processPlan = inngest.createFunction(
             });
           }
 
-          // DXF parse failed — keep the file but flag it.
-          return {
-            pageCount: 0,
-            chunkCount: 0,
-            manualReview: true,
-            errorMessage: "Couldn't read CAD layers from the converted DXF.",
-          };
+          // 4. DXF parsed but yielded no readable layers → PDF fallback.
+          return await ingestDwgViaPdf("DXF produced no readable CAD layers");
         }
 
         // RVT / SKP / DOC / DOCX → convert to PDF via CloudConvert, then run
